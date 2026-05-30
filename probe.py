@@ -52,7 +52,8 @@ def probe_mongo(ip):
         import pymongo
         client = pymongo.MongoClient(ip, 27017,
             serverSelectionTimeoutMS=TIMEOUT*1000,
-            connectTimeoutMS=TIMEOUT*1000)
+            connectTimeoutMS=TIMEOUT*1000,
+            socketTimeoutMS=TIMEOUT*1000)
         dbs = client.list_database_names()
         result = {'ip': ip, 'port': 27017, 'type': 'mongo',
                   'databases': dbs, 'collections': {}, 'samples': {}, 'secrets': []}
