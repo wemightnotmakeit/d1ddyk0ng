@@ -60,68 +60,58 @@ jobs:
           echo "candidates: $(wc -l < candidates.txt)"
 
           > hits.txt
-          while IFS=: read -r IP PORT; do
-            [ -z "$IP" ] && continue
+          touch hits.txt
+
+          probe_one() {
+            local LINE="$1"
+            local IP="${LINE%%:*}"
+            local PORT="${LINE##*:}"
+            [ -z "$IP" ] && return
 
             if [ "$PORT" = "2375" ]; then
-              # Docker: check /info responds with ServerVersion
-              OUT=$(curl -s --max-time 5 "http://$IP:2375/info" 2>/dev/null)
+              OUT=$(curl -s --max-time 4 "http://$IP:2375/info" 2>/dev/null)
               if echo "$OUT" | grep -q "ServerVersion"; then
-                RUNNING=$(echo "$OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ContainersRunning',0))" 2>/dev/null || echo "?")
                 VERSION=$(echo "$OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ServerVersion','?'))" 2>/dev/null || echo "?")
+                RUNNING=$(echo "$OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ContainersRunning',0))" 2>/dev/null || echo "?")
                 echo "$IP:$PORT docker=$VERSION running=$RUNNING" >> hits.txt
-                echo "  DOCKER OPEN: $IP docker=$VERSION running=$RUNNING"
               fi
-
             elif [ "$PORT" = "8545" ]; then
-              # ETH RPC: check eth_blockNumber responds
-              OUT=$(curl -s --max-time 5 -X POST -H "Content-Type: application/json" \
-                -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
-                "http://$IP:8545" 2>/dev/null)
+              OUT=$(curl -s --max-time 4 -X POST -H "Content-Type: application/json" \
+                -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' "http://$IP:8545" 2>/dev/null)
               if echo "$OUT" | grep -q "result"; then
                 BLOCK=$(echo "$OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(int(d['result'],16))" 2>/dev/null || echo "?")
-                # Check for unlocked accounts
-                ACCTS=$(curl -s --max-time 5 -X POST -H "Content-Type: application/json" \
-                  -d '{"jsonrpc":"2.0","method":"eth_accounts","params":[],"id":1}' \
-                  "http://$IP:8545" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(','.join(d.get('result',[])))" 2>/dev/null || echo "")
+                ACCTS=$(curl -s --max-time 4 -X POST -H "Content-Type: application/json" \
+                  -d '{"jsonrpc":"2.0","method":"eth_accounts","params":[],"id":1}' "http://$IP:8545" 2>/dev/null | \
+                  python3 -c "import sys,json; d=json.load(sys.stdin); print(','.join(d.get('result',[])))" 2>/dev/null || echo "")
                 echo "$IP:$PORT block=$BLOCK accounts=$ACCTS" >> hits.txt
-                echo "  ETH OPEN: $IP block=$BLOCK accounts=$ACCTS"
               fi
-
             elif [ "$PORT" = "8888" ]; then
-              # Jupyter: check if login page or token-free
-              OUT=$(curl -s --max-time 5 "http://$IP:8888/api/kernels" 2>/dev/null)
-              if echo "$OUT" | grep -q -v "401\|Unauthorized\|login"; then
+              OUT=$(curl -s --max-time 4 "http://$IP:8888/api/kernels" 2>/dev/null)
+              if echo "$OUT" | grep -qv "401\|Unauthorized\|login"; then
                 echo "$IP:$PORT jupyter=open" >> hits.txt
-                echo "  JUPYTER OPEN: $IP"
               fi
-
             elif [ "$PORT" = "9200" ]; then
-              # Elasticsearch: check cluster info
-              OUT=$(curl -s --max-time 5 "http://$IP:9200" 2>/dev/null)
+              OUT=$(curl -s --max-time 4 "http://$IP:9200" 2>/dev/null)
               if echo "$OUT" | grep -q "cluster_name\|tagline"; then
                 NAME=$(echo "$OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cluster_name','?'))" 2>/dev/null || echo "?")
                 echo "$IP:$PORT elastic=$NAME" >> hits.txt
-                echo "  ELASTIC OPEN: $IP cluster=$NAME"
               fi
-
             elif [ "$PORT" = "6379" ]; then
-              # Redis: HTTP probe (unauthenticated Redis responds to garbage with error msg)
               OUT=$(curl -s --max-time 4 "http://$IP:6379" 2>/dev/null || true)
               if echo "$OUT" | grep -qi "redis\|WRONGTYPE\|ERR wrong"; then
                 echo "$IP:$PORT redis=open" >> hits.txt
-                echo "  REDIS OPEN: $IP"
               fi
-
             elif [ "$PORT" = "27017" ]; then
-              # MongoDB: check if port accepts connection (mongo handshake is binary, curl will fail but nc won't)
-              OUT=$(curl -s --max-time 5 "http://$IP:27017" 2>/dev/null)
-              if echo "$OUT" | grep -q "MongoDB\|mongo"; then
+              OUT=$(curl -s --max-time 4 "http://$IP:27017" 2>/dev/null)
+              if echo "$OUT" | grep -qi "MongoDB\|mongo\|looks like"; then
                 echo "$IP:$PORT mongo=open" >> hits.txt
-                echo "  MONGO OPEN: $IP"
               fi
             fi
-          done < candidates.txt || true
+          }
+          export -f probe_one
+
+          # Run 20 probes in parallel
+          cat candidates.txt | xargs -P 20 -I{} bash -c 'probe_one "$@"' _ {} 2>/dev/null || true
 
           echo "verified live: $(wc -l < hits.txt)"
           cat hits.txt
