@@ -48,6 +48,8 @@ jobs:
       - name: scan
         run: |
           TARGET="${{ github.event.inputs.range || matrix.block }}"
+          SAFE=$(echo "$TARGET" | tr '/.' '--')
+          echo "SAFE_BLOCK=$SAFE" >> $GITHUB_ENV
           sudo masscan "$TARGET" -p8545,2375,8888,9200,6379,27017 \
             --rate=300000 \
             --wait=2 \
@@ -59,7 +61,7 @@ jobs:
       - name: upload
         uses: actions/upload-artifact@v4
         with:
-          name: hits-${{ matrix.block }}-${{ github.run_id }}
+          name: hits-${{ env.SAFE_BLOCK }}-${{ github.run_id }}
           path: hits.txt
           retention-days: 3
           if-no-files-found: ignore
