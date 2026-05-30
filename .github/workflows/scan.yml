@@ -62,6 +62,7 @@ jobs:
           name: hits-${{ matrix.block }}-${{ github.run_id }}
           path: hits.txt
           retention-days: 3
+          if-no-files-found: ignore
         if: always()
 
   collect:
