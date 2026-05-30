@@ -10,6 +10,9 @@ on:
   schedule:
     - cron: '0 * * * *'
 
+permissions:
+  contents: write
+
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -49,7 +52,6 @@ jobs:
             --rate=300000 \
             --wait=2 \
             -oL results.txt 2>/dev/null || true
-          # Strip masscan header lines, output clean ip:port
           grep "^open" results.txt | awk '{print $4":"$3}' > hits.txt || true
           echo "found $(wc -l < hits.txt) open ports in $TARGET"
           head -20 hits.txt
@@ -61,3 +63,39 @@ jobs:
           path: hits.txt
           retention-days: 3
         if: always()
+
+  collect:
+    runs-on: ubuntu-latest
+    needs: scan
+    if: always()
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: raw/
+          pattern: hits-*
+
+      - name: aggregate and commit
+        run: |
+          mkdir -p data
+          # Merge all hits, dedupe
+          find raw/ -name "hits.txt" -exec cat {} \; | sort -u > data/latest.txt
+          COUNT=$(wc -l < data/latest.txt)
+          echo "Total unique open ports: $COUNT"
+          head -20 data/latest.txt
+
+          # Append to cumulative log
+          cat data/latest.txt >> data/cumulative.txt 2>/dev/null || true
+          sort -u data/cumulative.txt -o data/cumulative.txt
+
+          TOTAL=$(wc -l < data/cumulative.txt)
+          echo "Cumulative unique: $TOTAL"
+
+          git config user.email "scan@noreply"
+          git config user.name "scanner"
+          git add data/
+          git diff --cached --quiet || git commit -m "scan $(date -u +%Y-%m-%dT%H:%M) — $COUNT new, $TOTAL total"
+          git push
