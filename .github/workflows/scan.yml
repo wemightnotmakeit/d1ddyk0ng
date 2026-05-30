@@ -90,7 +90,7 @@ jobs:
       - name: install
         run: |
           sudo apt-get install -y masscan 2>/dev/null
-          pip install pymongo requests 2>/dev/null
+          pip install pymongo requests eth-account 2>/dev/null
 
       - name: scan and probe
         run: |
