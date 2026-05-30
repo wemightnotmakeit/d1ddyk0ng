@@ -106,9 +106,9 @@ jobs:
               fi
 
             elif [ "$PORT" = "6379" ]; then
-              # Redis: send PING
-              OUT=$(echo -e "*1\r\n\$4\r\nPING\r\n" | nc -w 3 "$IP" 6379 2>/dev/null)
-              if echo "$OUT" | grep -q "PONG\|redis_version"; then
+              # Redis: HTTP probe (unauthenticated Redis responds to garbage with error msg)
+              OUT=$(curl -s --max-time 4 "http://$IP:6379" 2>/dev/null || true)
+              if echo "$OUT" | grep -qi "redis\|WRONGTYPE\|ERR wrong"; then
                 echo "$IP:$PORT redis=open" >> hits.txt
                 echo "  REDIS OPEN: $IP"
               fi
@@ -121,13 +121,13 @@ jobs:
                 echo "  MONGO OPEN: $IP"
               fi
             fi
-          done < candidates.txt
+          done < candidates.txt || true
 
           echo "verified live: $(wc -l < hits.txt)"
           cat hits.txt
 
       - name: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: hits-${{ env.SAFE_BLOCK }}-${{ github.run_id }}
           path: hits.txt
