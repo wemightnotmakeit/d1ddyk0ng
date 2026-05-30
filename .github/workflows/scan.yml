@@ -197,4 +197,5 @@ jobs:
           git config user.name "scanner"
           git add data/
           git diff --cached --quiet || git commit -m "scan $(date -u +%Y-%m-%dT%H:%M) — $COUNT live, $TOTAL total"
+          git pull --rebase origin main || true
           git push
