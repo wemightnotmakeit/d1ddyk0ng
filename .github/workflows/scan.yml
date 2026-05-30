@@ -1,0 +1,63 @@
+name: scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      range:
+        description: 'CIDR target'
+        required: false
+        default: ''
+  schedule:
+    - cron: '0 * * * *'
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        block:
+          - "45.33.0.0/16"
+          - "45.56.0.0/16"
+          - "104.131.0.0/16"
+          - "138.68.0.0/16"
+          - "167.99.0.0/16"
+          - "139.162.0.0/16"
+          - "172.104.0.0/16"
+          - "45.32.0.0/16"
+          - "149.28.0.0/16"
+          - "207.148.0.0/16"
+          - "65.108.0.0/16"
+          - "88.99.0.0/16"
+          - "116.202.0.0/16"
+          - "5.161.0.0/16"
+          - "51.89.0.0/16"
+          - "51.68.0.0/16"
+          - "51.222.0.0/16"
+          - "64.225.0.0/16"
+          - "134.209.0.0/16"
+          - "178.128.0.0/16"
+
+    steps:
+      - name: install
+        run: sudo apt-get install -y masscan 2>/dev/null
+
+      - name: scan
+        run: |
+          TARGET="${{ github.event.inputs.range || matrix.block }}"
+          sudo masscan "$TARGET" -p8545,2375,8888,9200,6379,27017 \
+            --rate=300000 \
+            --wait=2 \
+            -oL results.txt 2>/dev/null || true
+          # Strip masscan header lines, output clean ip:port
+          grep "^open" results.txt | awk '{print $4":"$3}' > hits.txt || true
+          echo "found $(wc -l < hits.txt) open ports in $TARGET"
+          head -20 hits.txt
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: hits-${{ matrix.block }}-${{ github.run_id }}
+          path: hits.txt
+          retention-days: 3
+        if: always()
