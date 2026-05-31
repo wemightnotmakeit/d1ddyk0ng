@@ -142,11 +142,8 @@ def probe_eth(ip):
             # Real mainnet — check balances
             for addr in accounts[:10]:
                 try:
-                    bal = requests.post(f'http://{ip}:8545',
-                        json={'jsonrpc': '2.0', 'method': 'eth_getBalance',
-                              'params': [addr, 'latest'], 'id': 1},
-                        timeout=TIMEOUT).json().get('result', '0x0')
-                    eth = int(bal, 16) / 1e18
+                    eth = eth_mainnet_balance(addr)  # verify on public chain, not local node
+
                     # Skip known honeypot balance signatures
                     if eth in HONEYPOT_ETH_BALANCES:
                         return None
