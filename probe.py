@@ -234,22 +234,31 @@ def probe_elastic(ip):
         return None
 
 def redis_parse_keys(raw):
-    keys = []
+    # SCAN response: *2\r\n $N\r\n {cursor}\r\n *M\r\n $K\r\n {key}\r\n ...
     lines = raw.split('\r\n')
+    keys = []
     i = 0
+    # skip outer *2
+    if i < len(lines) and lines[i].startswith('*'):
+        i += 1
+    # skip cursor: $N + value
+    if i < len(lines) and lines[i].startswith('$'):
+        i += 2
+    # skip key array marker *M
+    if i < len(lines) and lines[i].startswith('*'):
+        i += 1
+    # read key bulk strings
     while i < len(lines):
-        line = lines[i]
-        if line.startswith('$') and i + 1 < len(lines):
+        if lines[i].startswith('$') and i + 1 < len(lines):
             try:
-                length = int(line[1:])
-                if length > 0:
+                if int(lines[i][1:]) > 0:
                     keys.append(lines[i + 1])
                 i += 2
             except:
                 i += 1
         else:
             i += 1
-    return [k for k in keys if k and k != '0']
+    return [k for k in keys if k]
 
 def probe_redis(ip):
     try:
