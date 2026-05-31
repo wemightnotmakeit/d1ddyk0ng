@@ -17,7 +17,7 @@ jobs:
 
       - name: run dork scanner
         env:
-          GH_TOKEN: ${{ secrets.GH_SEARCH_TOKEN }}
+          GH_TOKEN: ${{ secrets.d1ddyk0ng }}
         run: python3 scripts/gh_dork.py
 
       - name: commit findings
