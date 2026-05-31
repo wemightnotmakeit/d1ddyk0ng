@@ -2,7 +2,11 @@
 import requests, json, time, re, os, sys
 from datetime import datetime
 
-TOKEN = os.environ.get('GITHUB_TOKEN', '')
+TOKEN = os.environ.get('GH_TOKEN', '')
+if not TOKEN:
+    print('ERROR: GH_TOKEN not set', flush=True)
+    sys.exit(1)
+print(f'Token loaded: {TOKEN[:8]}...', flush=True)
 HEADERS = {
     'Authorization': f'token {TOKEN}',
     'Accept': 'application/vnd.github.v3+json',
