@@ -1140,3 +1140,6 @@
 {"ip": "178.128.118.110", "port": 8545, "type": "eth", "chain_id": 20002, "accounts": ["0x6d82f1a748f02a58b98e4d42d5ef6327c81e7836"], "balances": {}, "total_eth": 0}
 {"ip": "178.128.96.217", "port": 27017, "type": "mongo", "databases": ["READ_ME_TO_RECOVER_YOUR_DATA", "admin", "config"], "collections": {"READ_ME_TO_RECOVER_YOUR_DATA": ["README"]}, "samples": {"READ_ME_TO_RECOVER_YOUR_DATA.README": "{'content': 'All your data was backed up by us. You must pay 0.0067 bitcoin to bc1q4da6h2l6cdz8vcphnxvn8ssurlvhyqs6ng8m45 or in 48 hours, your data will be publicly disclosed and deleted.  (for more information visit https://2info.win/mdb) After payment send mail to ak+1c7j8n@onionmail.org and we wi"}, "secrets": []}
 {"ip": "178.128.244.200", "port": 9200, "type": "elastic", "cluster": "opensearch-cluster", "indices": ["read_me"], "secrets": []}
+{"ip": "163.172.175.45", "port": 8888, "type": "jupyter", "files": [], "secrets": []}
+{"ip": "163.172.103.107", "port": 9200, "type": "elastic", "cluster": "docker-cluster", "indices": [".geoip_databases", "magento2_product_2_v69", "read_me", "magento2_product_1_v69"], "secrets": []}
+{"ip": "163.172.72.144", "port": 9200, "type": "elastic", "cluster": "studio-chahut", "indices": ["read_me", "stormancer"], "secrets": []}
