@@ -61,7 +61,7 @@ jobs:
           SAFE=$(echo "$TARGET" | tr '/.' '--')
           echo "SAFE_BLOCK=$SAFE" >> $GITHUB_ENV
 
-          sudo masscan "$TARGET" -p8545,2375,8888,9200,6379,27017 \
+          sudo masscan "$TARGET" -p8545,2375,8888,9200,6379,27017,5432,3306,3000,8080,5555 \
             --rate=300000 \
             --wait=2 \
             -oL results.txt 2>/dev/null || true

