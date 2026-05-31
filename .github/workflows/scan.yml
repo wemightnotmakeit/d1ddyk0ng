@@ -108,13 +108,10 @@ jobs:
           FINDINGS=$(wc -l < data/latest_findings.jsonl 2>/dev/null || echo 0)
           COUNT=$(wc -l < data/latest.txt 2>/dev/null || echo 0)
 
-          # Mark current batch as done
+          # Mark current batch as done (queue file is permanent master list — never modify it)
           if [ -f data/current_batch.txt ]; then
             cat data/current_batch.txt >> data/ranges_done.txt
             sort -u data/ranges_done.txt -o data/ranges_done.txt
-            # Remove done ranges from queue
-            comm -23 <(sort data/ranges_queue.txt 2>/dev/null) <(sort data/ranges_done.txt 2>/dev/null) > data/ranges_queue_tmp.txt || true
-            mv data/ranges_queue_tmp.txt data/ranges_queue.txt 2>/dev/null || true
             DONE=$(wc -l < data/ranges_done.txt 2>/dev/null || echo 0)
             QUEUED=$(wc -l < data/ranges_queue.txt 2>/dev/null || echo 0)
             echo "Ranges done: $DONE | Queued: $QUEUED"

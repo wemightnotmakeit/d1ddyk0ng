@@ -40,4 +40,4 @@ print(sum(1 for l in lines if json.loads(l).get('secrets')))
           git add data/cumulative_findings.jsonl redis_findings.jsonl
           git diff --cached --quiet || git commit -m "redis-probe: $HITS open, $SECRETS with secrets"
           git pull --rebase origin main || true
-          git push
+          git push || (git pull --rebase origin main && git push)
