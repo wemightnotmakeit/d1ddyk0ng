@@ -160,8 +160,6 @@ def probe_eth(ip):
             print(f'  MAINNET FUNDED: {ip} chain={chain_id} total={result["total_eth"]:.4f} ETH', flush=True)
             return result
         return None
-
-        return result
     except:
         return None
 
@@ -264,11 +262,16 @@ def probe_redis(ip):
             c = f'*{len(args)}\r\n' + ''.join(f'${len(str(a))}\r\n{a}\r\n' for a in args)
             s.send(c.encode())
             data = b''
-            while True:
-                chunk = s.recv(65536)
-                data += chunk
-                if len(chunk) < 65536:
-                    break
+            try:
+                while True:
+                    chunk = s.recv(65536)
+                    if not chunk:
+                        break
+                    data += chunk
+                    if len(chunk) < 65536:
+                        break
+            except:
+                pass
             return data.decode('utf-8', errors='replace')
 
         pong = send_cmd('PING')
@@ -325,8 +328,14 @@ except Exception as e:
     print(f'No candidates.txt: {e}')
     sys.exit(0)
 
-if len(candidates) > 500:
-    candidates = candidates[:500]
+# Cap per port so one busy service can't crowd out others
+from collections import defaultdict
+per_port = defaultdict(list)
+for ip, port in candidates:
+    per_port[port].append((ip, port))
+candidates = []
+for port, items in per_port.items():
+    candidates.extend(items[:150])  # max 150 per port type
 
 print(f'Deep probing {len(candidates)} candidates (30 workers)...', flush=True)
 
