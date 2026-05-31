@@ -255,6 +255,9 @@ except Exception as e:
     print(f'No candidates.txt: {e}')
     sys.exit(0)
 
+if len(candidates) > 500:
+    candidates = candidates[:500]
+
 print(f'Deep probing {len(candidates)} candidates (30 workers)...', flush=True)
 
 findings = []
