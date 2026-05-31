@@ -6,7 +6,7 @@ Cycles through VPS/hosting ranges where exposed services actually live.
 """
 import json, sys, os
 
-BATCH_SIZE = 20
+BATCH_SIZE = 250
 QUEUE_FILE  = 'data/ranges_queue.txt'
 DONE_FILE   = 'data/ranges_done.txt'
 BATCH_FILE  = 'data/current_batch.txt'
