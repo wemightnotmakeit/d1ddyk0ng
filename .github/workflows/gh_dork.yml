@@ -1,0 +1,35 @@
+name: gh-dork
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  dork:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: run dork scanner
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_SEARCH_TOKEN }}
+        run: python3 scripts/gh_dork.py
+
+      - name: commit findings
+        run: |
+          if [ ! -f gh_findings.jsonl ]; then echo "no output"; exit 0; fi
+          HITS=$(wc -l < gh_findings.jsonl)
+          if [ "$HITS" -eq "0" ]; then echo "0 hits"; exit 0; fi
+          echo "Hits: $HITS"
+          cat gh_findings.jsonl >> data/gh_cumulative.jsonl || true
+          git config user.email "scan@noreply"
+          git config user.name "scanner"
+          git add data/gh_cumulative.jsonl gh_findings.jsonl
+          git diff --cached --quiet || git commit -m "gh-dork: $HITS hits"
+          git pull --rebase origin main || true
+          git push || (git pull --rebase origin main && git push)
