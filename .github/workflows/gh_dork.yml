@@ -11,9 +11,20 @@ permissions:
 jobs:
   dork:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
+
+      - name: fetch seen list from vps
+        env:
+          VPS_KEY: ${{ secrets.VPS_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$VPS_KEY" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/vps_key root@$VPS_HOST:/opt/agents/gh_findings/seen.txt seen.txt 2>/dev/null || touch seen.txt
+          echo "Seen count: $(wc -l < seen.txt)"
 
       - name: run dork scanner
         env:
@@ -25,13 +36,9 @@ jobs:
           VPS_KEY: ${{ secrets.VPS_KEY }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          if [ -z "$VPS_KEY" ] || [ -z "$VPS_HOST" ]; then echo "no vps secrets"; exit 0; fi
-          if [ ! -f gh_findings.jsonl ]; then echo "no output"; exit 0; fi
-          HITS=$(wc -l < gh_findings.jsonl)
+          HITS=$(wc -l < gh_findings.jsonl 2>/dev/null || echo 0)
           echo "Hits: $HITS"
-          if [ "$HITS" -eq "0" ]; then echo "0 hits"; exit 0; fi
-          mkdir -p ~/.ssh
-          echo "$VPS_KEY" > ~/.ssh/vps_key
-          chmod 600 ~/.ssh/vps_key
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/vps_key gh_findings.jsonl root@$VPS_HOST:/opt/agents/gh_findings/$(date +%s).jsonl
-          echo "Shipped $HITS hits to VPS"
+          STAMP=$(date +%s)
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/vps_key gh_findings.jsonl root@$VPS_HOST:/opt/agents/gh_findings/${STAMP}.jsonl
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/vps_key seen.txt root@$VPS_HOST:/opt/agents/gh_findings/seen.txt
+          echo "Shipped $HITS findings + updated seen list"
