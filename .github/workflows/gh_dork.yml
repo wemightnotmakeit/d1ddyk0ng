@@ -46,7 +46,7 @@ jobs:
           git config user.email "scan@noreply"
           git config user.name "scanner"
           git pull --rebase origin main || true
-          git add data/gh_cumulative.jsonl
+          git add data/findings_*.jsonl
           git diff --cached --quiet || git commit -m "gh-dork: $HITS hits"
           for i in 1 2 3; do
             git push && break
