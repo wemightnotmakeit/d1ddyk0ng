@@ -126,7 +126,7 @@ new_seen = []
 
 for dork in DORKS:
     print(f'\nDORK: {dork}', flush=True)
-    for page in range(1, 4):  # 3 pages x 100 = 300 candidates per dork
+    for page in range(1, 3):  # 2 pages x 100 = 200 candidates per dork
         result = search(dork, page)
         if not result:
             break
