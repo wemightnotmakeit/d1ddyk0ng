@@ -25,6 +25,7 @@ jobs:
           VPS_KEY: ${{ secrets.VPS_KEY }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
+          if [ -z "$VPS_KEY" ] || [ -z "$VPS_HOST" ]; then echo "no vps secrets, skipping"; exit 0; fi
           if [ ! -f gh_findings.jsonl ]; then exit 0; fi
           HITS=$(wc -l < gh_findings.jsonl)
           if [ "$HITS" -eq "0" ]; then exit 0; fi
