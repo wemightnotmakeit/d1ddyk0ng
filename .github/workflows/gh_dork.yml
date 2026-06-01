@@ -6,7 +6,7 @@ on:
     - cron: '0 */6 * * *'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   dork:
@@ -20,16 +20,21 @@ jobs:
           GH_TOKEN: ${{ secrets.d1ddyk0ng }}
         run: python3 scripts/gh_dork.py
 
-      - name: report hit count
+      - name: save findings
         run: |
           if [ ! -f gh_findings.jsonl ]; then echo "no output"; exit 0; fi
           HITS=$(wc -l < gh_findings.jsonl)
           echo "Hits: $HITS"
-
-      - name: upload findings
-        uses: actions/upload-artifact@v4
-        with:
-          name: gh-findings-${{ github.run_id }}
-          path: gh_findings.jsonl
-          retention-days: 90
-          if-no-files-found: ignore
+          if [ "$HITS" -eq "0" ]; then echo "0 hits"; exit 0; fi
+          mkdir -p data
+          python3 scripts/encode_findings.py
+          git config user.email "scan@noreply"
+          git config user.name "scanner"
+          git pull --rebase origin main || true
+          git add data/gh_cumulative.jsonl
+          git diff --cached --quiet || git commit -m "gh-dork: $HITS hits"
+          for i in 1 2 3; do
+            git push && break
+            git pull --rebase origin main || true
+            sleep 3
+          done
