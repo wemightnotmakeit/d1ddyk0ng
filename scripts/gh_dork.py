@@ -31,12 +31,19 @@ KEY_RE = re.compile(
     r'|OPERATOR_KEY|WALLET_KEYPAIR|SOL_KEYPAIR|SOLANA_KEYPAIR|PRIVATE_KEY_BASE58'
     r'|SOLANA_WALLET|PUMP_WALLET|SNIPER_WALLET|BOT_WALLET)\s*[=:"\s]+([1-9A-HJ-NP-Za-km-z]{87,88})'
     # Solana CLI keypair JSON array — [byte,byte,...x64] — the Solana CLI default format
-    # secretKey or just the raw array in an id.json / keypair.json
     r'|"(?:secretKey|privateKey)"\s*:\s*\[(\d{1,3}(?:,\s*\d{1,3}){63})\]'
     r'|(?:KEYPAIR|WALLET_BYTES)\s*=\s*\[(\d{1,3}(?:,\s*\d{1,3}){63})\]'
+    # Solana TypeScript bot pattern: Keypair.fromSecretKey(Buffer.from([...64...]))
+    r'|Keypair\.fromSecretKey\s*\(\s*(?:Buffer\.from|Uint8Array\.from)?\s*\(\s*\[(\d{1,3}(?:,\s*\d{1,3}){63})\]'
+    # Solana bs58.decode pattern: Keypair.fromSecretKey(bs58.decode("...87chars..."))
+    r'|bs58\.decode\s*\(\s*["\']([1-9A-HJ-NP-Za-km-z]{87,88})["\']\s*\)'
     # EVM private key — 32 bytes hex (Hardhat/Foundry deployer, MEV bots)
     r'|(?:PRIVATE_KEY|DEPLOYER_KEY|ETH_PRIVATE_KEY|WALLET_PRIVATE_KEY'
     r'|DEPLOYER_PRIVATE_KEY|MEV_BOT_KEY|SEARCHER_KEY|FLASHBOT_KEY)\s*[=:"\s]+(0x[a-fA-F0-9]{64})'
+    # ethers.js / web3.py direct instantiation with hardcoded key
+    r'|new ethers\.Wallet\s*\(\s*["\']?(0x[a-fA-F0-9]{64})["\']?'
+    r'|from_key\s*\(\s*["\']?(0x[a-fA-F0-9]{64})["\']?'
+    r'|privateKeyToAccount\s*\(\s*["\']?(0x[a-fA-F0-9]{64})["\']?'
     # Raw 32-byte hex private key without 0x prefix (common in older configs)
     r'|(?:PRIVATE_KEY|ETH_KEY)\s*[=:"\']+([a-fA-F0-9]{64})\b'
     # AWS
@@ -161,6 +168,106 @@ DORKS = [
     'filename:config.json api_key api_secret crypto',
     'filename:.env EXCHANGE_API_SECRET',
     'filename:.env TRADING_BOT_SECRET',
+
+    # === JUPYTER NOTEBOOKS — massive blind spot, no GitHub secret scanning ===
+    # Researchers/quant devs test with real keys in notebooks constantly
+    'extension:ipynb PRIVATE_KEY',
+    'extension:ipynb secretKey solana',
+    'extension:ipynb BINANCE_SECRET',
+    'extension:ipynb web3 from_key',
+    'extension:ipynb MNEMONIC',
+    'extension:ipynb aws_secret_access_key',
+    'extension:ipynb OPENAI_API_KEY',
+    'extension:ipynb Keypair fromSecretKey',
+    'extension:ipynb sk_live_',
+
+    # === TERRAFORM STATE — contains every secret used to provision infra ===
+    'filename:terraform.tfstate aws_secret_access_key',
+    'filename:terraform.tfstate private_key',
+    'filename:.tfvars aws_secret_access_key',
+    'filename:.tfvars private_key',
+    'filename:terraform.tfvars PRIVATE_KEY',
+
+    # === SOLANA CODE PATTERNS — direct key hardcoding in TS/JS bots ===
+    # Keypair.fromSecretKey is how every Solana bot initializes its wallet
+    'extension:ts Keypair.fromSecretKey Buffer.from',
+    'extension:js Keypair.fromSecretKey Buffer.from',
+    'extension:ts Keypair.fromSecretKey bs58.decode',
+    'extension:js Keypair.fromSecretKey bs58.decode',
+    'extension:ts fromSecretKey Uint8Array',
+    'extension:js fromSecretKey Uint8Array',
+    # Solana web3.js direct array instantiation
+    'extension:ts secretKey solana pump',
+    'extension:js secretKey solana pump',
+    # Anchor workspace wallet
+    'extension:ts anchor.Wallet keypair',
+    'extension:ts loadKeypair private',
+
+    # === EVM DIRECT CODE PATTERNS — hardcoded in scripts not just .env ===
+    'extension:js new ethers.Wallet PRIVATE_KEY',
+    'extension:ts new ethers.Wallet PRIVATE_KEY',
+    'extension:py from_key 0x',
+    'extension:py privateKeyToAccount',
+    'extension:js privateKey 0x mainnet',
+    'extension:ts privateKey 0x mainnet',
+    # cast send (Foundry CLI in scripts)
+    'filename:deploy.sh private-key 0x',
+    'filename:Makefile cast send private-key',
+
+    # === MAINNET QUALIFIER — private key + mainnet RPC = definitely real ETH ===
+    'filename:.env ALCHEMY_MAINNET_URL PRIVATE_KEY',
+    'filename:.env INFURA_API_KEY PRIVATE_KEY',
+    'filename:.env QUICKNODE_HTTP PRIVATE_KEY',
+    'filename:.env MAINNET_PRIVATE_KEY',
+    'filename:.env PROD_PRIVATE_KEY',
+    'filename:.env MAINNET_URL PRIVATE_KEY',
+    'filename:.env.mainnet PRIVATE_KEY',
+    'filename:.env ALCHEMY_API_KEY ETH_PRIVATE_KEY',
+
+    # === DOCKER + CI — secrets baked into compose/CI files ===
+    'filename:docker-compose.yml PRIVATE_KEY',
+    'filename:docker-compose.yml AWS_SECRET',
+    'filename:docker-compose.yml BINANCE_SECRET',
+    'filename:.env.docker PRIVATE_KEY',
+    'filename:docker-compose.yml SOLANA',
+
+    # === PYTHON SCRIPTS — web3.py / solana-py patterns ===
+    'extension:py PRIVATE_KEY = "0x',
+    'extension:py solana keypair secret',
+    'extension:py web3 private_key mainnet',
+    'extension:py binance Client api_key',
+
+    # === ADDITIONAL SOLANA BOT PATTERNS ===
+    'filename:.env RAYDIUM PRIVATE_KEY',
+    'filename:.env JUPITER PRIVATE_KEY',
+    'filename:.env DRIFT PRIVATE_KEY',
+    'filename:.env MARGINFI PRIVATE_KEY',
+    'filename:.env ORCA PRIVATE_KEY',
+    # volume bots / market making
+    'filename:.env VOLUME_BOT PRIVATE_KEY',
+    'filename:.env MARKET_MAKER solana',
+    'filename:.env COPY_TRADE PRIVATE_KEY',
+    'filename:.env ARBITRAGE solana PRIVATE_KEY',
+
+    # === ADDITIONAL CHAINS — less saturated than ETH/SOL ===
+    'filename:.env NEAR_PRIVATE_KEY',
+    'filename:.env APTOS_PRIVATE_KEY',
+    'filename:.env SUI_PRIVATE_KEY',
+    'filename:.env TON_MNEMONIC',
+    'filename:.env COSMOS_MNEMONIC',
+
+    # === SHELL SCRIPTS / DOTFILES — ops engineers leak keys here ===
+    'filename:.bashrc PRIVATE_KEY',
+    'filename:.bash_profile AWS_SECRET',
+    'filename:.zshrc PRIVATE_KEY',
+    'filename:.zshrc BINANCE',
+    'extension:sh export PRIVATE_KEY',
+    'extension:sh export AWS_SECRET_ACCESS_KEY',
+
+    # === GITHUB ACTIONS WORKFLOWS — hardcoded instead of using secrets ===
+    'filename:*.yml PRIVATE_KEY 0x',
+    'filename:*.yaml AWS_SECRET_ACCESS_KEY',
+    'filename:*.yml BINANCE_SECRET',
 ]
 
 # load seen set
