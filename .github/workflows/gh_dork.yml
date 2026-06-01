@@ -24,12 +24,18 @@ jobs:
         run: |
           if [ ! -f gh_findings.jsonl ]; then echo "no output"; exit 0; fi
           HITS=$(wc -l < gh_findings.jsonl)
-          if [ "$HITS" -eq "0" ]; then echo "0 hits"; exit 0; fi
           echo "Hits: $HITS"
-          cat gh_findings.jsonl >> data/gh_cumulative.jsonl || true
+          cat gh_findings.jsonl
+          if [ "$HITS" -eq "0" ]; then echo "0 hits"; exit 0; fi
+          mkdir -p data
+          cat gh_findings.jsonl >> data/gh_cumulative.jsonl
           git config user.email "scan@noreply"
           git config user.name "scanner"
+          git pull --rebase origin main || true
           git add data/gh_cumulative.jsonl gh_findings.jsonl
           git diff --cached --quiet || git commit -m "gh-dork: $HITS hits"
-          git pull --rebase origin main || true
-          git push || (git pull --rebase origin main && git push)
+          for i in 1 2 3; do
+            git push && break
+            git pull --rebase origin main || true
+            sleep 3
+          done
