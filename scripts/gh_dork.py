@@ -31,21 +31,21 @@ KEY_RE = re.compile(
 )
 
 DORKS = [
-    'filename:.env "AWS_SECRET_ACCESS_KEY"',
-    'filename:.env "STRIPE_SECRET_KEY"',
-    'filename:.env "sk-" "OPENAI"',
-    'filename:.env "DB_PASSWORD" "DB_HOST"',
-    'filename:config.py "SECRET_KEY" "DATABASE"',
-    'filename:credentials "aws_secret_access_key"',
-    'filename:.env "TWILIO_AUTH_TOKEN"',
-    'filename:.env "SENDGRID_API_KEY"',
-    'filename:.env "PRIVATE_KEY" "MNEMONIC"',
-    'filename:*.json "private_key" "client_email" site:github.com',
-    'extension:pem "BEGIN RSA PRIVATE KEY"',
-    'extension:pem "BEGIN OPENSSH PRIVATE KEY"',
-    'filename:.env "COINBASE" OR "BINANCE" OR "KRAKEN" "SECRET"',
-    'filename:.env "TELEGRAM_BOT_TOKEN"',
-    'filename:wp-config.php "DB_PASSWORD"',
+    'AKIA language:python',
+    'AKIA language:javascript',
+    'AKIA language:php',
+    'sk_live_ language:python',
+    'sk_live_ language:javascript',
+    '"BEGIN RSA PRIVATE KEY" language:python',
+    '"BEGIN OPENSSH PRIVATE KEY"',
+    'ghp_ language:python',
+    'ghp_ language:javascript',
+    'xoxb- language:python',
+    'xoxb- language:javascript',
+    '"aws_secret_access_key" language:python',
+    '"aws_secret_access_key" language:javascript',
+    'AIzaSy language:python',
+    'AIzaSy language:javascript',
 ]
 
 def search(query, page=1):
