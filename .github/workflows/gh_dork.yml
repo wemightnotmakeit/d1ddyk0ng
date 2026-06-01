@@ -6,7 +6,7 @@ on:
     - cron: '0 */6 * * *'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   dork:
@@ -20,36 +20,18 @@ jobs:
           GH_TOKEN: ${{ secrets.d1ddyk0ng }}
         run: python3 scripts/gh_dork.py
 
-      - name: ship raw findings to vps
+      - name: ship to vps
         env:
           VPS_KEY: ${{ secrets.VPS_KEY }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          if [ -z "$VPS_KEY" ] || [ -z "$VPS_HOST" ]; then echo "no vps secrets, skipping"; exit 0; fi
-          if [ ! -f gh_findings.jsonl ]; then exit 0; fi
+          if [ -z "$VPS_KEY" ] || [ -z "$VPS_HOST" ]; then echo "no vps secrets"; exit 0; fi
+          if [ ! -f gh_findings.jsonl ]; then echo "no output"; exit 0; fi
           HITS=$(wc -l < gh_findings.jsonl)
-          if [ "$HITS" -eq "0" ]; then exit 0; fi
+          echo "Hits: $HITS"
+          if [ "$HITS" -eq "0" ]; then echo "0 hits"; exit 0; fi
           mkdir -p ~/.ssh
           echo "$VPS_KEY" > ~/.ssh/vps_key
           chmod 600 ~/.ssh/vps_key
           scp -o StrictHostKeyChecking=no -i ~/.ssh/vps_key gh_findings.jsonl root@$VPS_HOST:/opt/agents/gh_findings/$(date +%s).jsonl
           echo "Shipped $HITS hits to VPS"
-
-      - name: save encoded to git
-        run: |
-          if [ ! -f gh_findings.jsonl ]; then echo "no output"; exit 0; fi
-          HITS=$(wc -l < gh_findings.jsonl)
-          echo "Hits: $HITS"
-          if [ "$HITS" -eq "0" ]; then echo "0 hits"; exit 0; fi
-          mkdir -p data
-          python3 scripts/encode_findings.py
-          git config user.email "scan@noreply"
-          git config user.name "scanner"
-          git pull --rebase origin main || true
-          git add data/findings_*.jsonl
-          git diff --cached --quiet || git commit -m "gh-dork: $HITS hits"
-          for i in 1 2 3; do
-            git push && break
-            git pull --rebase origin main || true
-            sleep 3
-          done
