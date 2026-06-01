@@ -28,16 +28,7 @@ jobs:
           cat gh_findings.jsonl
           if [ "$HITS" -eq "0" ]; then echo "0 hits"; exit 0; fi
           mkdir -p data
-          # base64 encode findings so push protection doesn't trigger
-          python3 -c "
-import json, base64, sys
-out = []
-for line in open('gh_findings.jsonl'):
-    r = json.loads(line)
-    r['secrets'] = [base64.b64encode(s.encode()).decode() for s in r.get('secrets',[])]
-    out.append(json.dumps(r))
-open('data/gh_cumulative.jsonl','a').write('\n'.join(out)+'\n')
-"
+          python3 scripts/encode_findings.py
           git config user.email "scan@noreply"
           git config user.name "scanner"
           git pull --rebase origin main || true
