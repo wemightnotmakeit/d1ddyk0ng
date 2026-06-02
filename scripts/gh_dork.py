@@ -155,6 +155,30 @@ DORKS = [
     'filename:config.js mnemonic abandon',
     'filename:.env SECRET_RECOVERY_PHRASE',
 
+    # === REAL MNEMONIC FILES — plaintext backup files, NOT .env.example ===
+    # Devs save seed phrases to text files and commit them
+    'filename:seed.txt mnemonic',
+    'filename:wallet.txt mnemonic',
+    'filename:backup.txt mnemonic',
+    'filename:keys.txt mnemonic',
+    'filename:phrase.txt',
+    'filename:recovery.txt',
+    'filename:seed_phrase.txt',
+    'filename:.env.production MNEMONIC',
+    'filename:.env.prod MNEMONIC',
+    'filename:.env.prod SEED_PHRASE',
+    # Solana wallet files people commit accidentally
+    'filename:wallet.json solana mnemonic',
+    # Config files (not example)
+    'filename:config.yaml mnemonic',
+    'filename:config.yml MNEMONIC',
+    'filename:settings.py MNEMONIC',
+    'filename:.env TRON_MNEMONIC',
+    'filename:.env BTC_MNEMONIC',
+    # Jupyter notebooks with real mnemonics
+    'extension:ipynb SEED_PHRASE',
+    'extension:ipynb RECOVERY_PHRASE',
+
     # === OPENAI ===
     'filename:.env OPENAI_API_KEY',
     'filename:.env.local OPENAI_API_KEY',

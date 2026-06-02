@@ -148,11 +148,49 @@ def get_raw(url):
     except: return ''
 
 WORD_COUNT_OK = {12,15,18,21,24}
+
+# Known test/example mnemonics used in tutorials and DeFi repo templates
+KNOWN_TEST_PHRASES = {
+    'candy maple cake sugar pudding cream honey rich smooth crumble sweet treat',  # Truffle
+    'myth like bonus scare over problem client lizard pioneer submit female collect',  # Hardhat
+    'test test test test test test test test test test test junk',
+    'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+    'one two three four five six seven eight nine ten eleven twelve',
+    'word word word word word word word word word word word word',
+    'legal winner thank year wave sausage worth useful legal winner thank yellow',  # BIP39 NIST
+    'letter advice cage absurd amount doctor acoustic avoid letter advice cage above',
+    'zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong',
+    'void come effort suffer camp survey warrior heavy shoot primary clutch crush open amazing screen patrol group space point ten exist slush involve unfold',
+}
+
 fake_phrases = ['abandon abandon','word word word','your mnemonic','test test test',
-                'here is where','put your','enter your','replace with','example phrase']
+                'here is where','put your','enter your','replace with','example phrase',
+                'your twelve word','seed phrase here','your seed phrase',
+                'fill in your','twelve word seed','insert mnemonic','twelve words here',
+                'word1 word2 word3','mnemonic phrase here']
+
+# File paths that are almost always test/example environments — skip them
+TEST_PATH_KEYWORDS = [
+    '.example','.template','.sample','.stub','.mock','.demo','.fixture',
+    '.sandbox','.kovan','.ropsten','.rinkeby','.goerli','.bsc_test',
+    '.ci','.test','.dev.env','env.test','env.ci',
+    'example.env','template.env','sample.env',
+    'truffle-config','truffle.js',
+]
+
+def is_test_path(path):
+    pl = path.lower()
+    return any(kw in pl for kw in TEST_PATH_KEYWORDS)
+
 def is_fake(phrase):
     pl = phrase.lower()
-    return any(f in pl for f in fake_phrases) or len(set(pl.split()))==1
+    if pl in KNOWN_TEST_PHRASES: return True
+    if any(f in pl for f in fake_phrases): return True
+    if len(set(pl.split())) == 1: return True  # all same word
+    # sequential numbers / very short distinct words
+    words = pl.split()
+    if all(w.isdigit() for w in words): return True
+    return False
 
 def extract_mnemonics(text):
     found = []
@@ -176,6 +214,8 @@ for f in sorted(glob.glob('/opt/agents/gh_findings/*.jsonl')):
     for line in open(f):
         try:
             e = json.loads(line)
+            if is_test_path(e.get('path', '')):
+                continue
             text = ' '.join(e.get('secrets',[]))
             for phrase in extract_mnemonics(text):
                 if phrase not in seen:
@@ -189,7 +229,8 @@ for f in sorted(glob.glob('/opt/agents/gh_findings/*.jsonl')):
     for line in open(f):
         try:
             e = json.loads(line)
-            p = e.get('path','').lower()
+            if is_test_path(e.get('path', '')):
+                continue
             if any(x in ' '.join(e.get('secrets',[])).lower() for x in
                    ['mnemonic','seed_phrase','recovery_phrase','wallet_mnemonic']):
                 mnemonic_repos.add((e['url'], e['repo'], e['path']))
@@ -200,6 +241,8 @@ for f in sorted(glob.glob('/opt/agents/gh_findings/*.jsonl')):
     for line in open(f):
         try:
             e = json.loads(line)
+            if is_test_path(e.get('path', '')):
+                continue
             text = ' '.join(e.get('secrets',[]))
             for phrase in extract_mnemonics(text):
                 all_sources.append((phrase, e))
