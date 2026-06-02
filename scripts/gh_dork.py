@@ -495,10 +495,9 @@ def fetch_and_scan(item):
 
 findings = []
 new_seen = []
-_last_gh_call = 0  # rate-limit pacer for GitHub API
+_last_gh_call = 0
 
 def _gh_search_paced(dork, page):
-    """GitHub code search with 2s minimum spacing to stay under 30/min."""
     global _last_gh_call
     gap = time.time() - _last_gh_call
     if gap < 2.0:
@@ -507,15 +506,37 @@ def _gh_search_paced(dork, page):
     _last_gh_call = time.time()
     return result
 
+# ══ Phase 1: Sourcegraph — run ALL dorks in parallel ═══════════════════════
+# 8 concurrent SG queries × ~15s each = ~5 min for all 158 dorks
+# (vs sequential GitHub API: 158 × 2s pacing + waits = 52+ min)
+print(f'\n=== Phase 1: Sourcegraph parallel scan ({len(DORKS)} dorks, 8 workers) ===', flush=True)
+t_sg_start = time.time()
+sg_results_map = {}
+
+with ThreadPoolExecutor(max_workers=8) as ex:
+    future_to_dork = {ex.submit(search_sourcegraph, dork, 500): dork for dork in DORKS}
+    done_count = 0
+    for future in as_completed(future_to_dork):
+        dork = future_to_dork[future]
+        try:
+            sg_results_map[dork] = future.result()
+        except Exception as e:
+            sg_results_map[dork] = []
+            print(f'  SG_ERR {dork[:40]}: {e}', flush=True)
+        done_count += 1
+        if done_count % 10 == 0:
+            print(f'  SG progress: {done_count}/{len(DORKS)} ({time.time()-t_sg_start:.0f}s)', flush=True)
+
+print(f'SG phase complete in {time.time()-t_sg_start:.0f}s', flush=True)
+
+# ══ Phase 2: Process SG results + collect raw-fetch queue ══════════════════
+gh_fallback_dorks = []
+all_raw_needed = []
+
 for dork in DORKS:
-    print(f'\nDORK: {dork}', flush=True)
-
-    # ── Phase 1: Sourcegraph (fast, inline content, no GH rate limit) ──
-    sg_lines = search_sourcegraph(dork, count=500)
-    print(f'  SG: {len(sg_lines)} line candidates', flush=True)
-
+    sg_lines = sg_results_map.get(dork, [])
     sg_new = 0
-    raw_needed = []  # items where line content alone wasn't enough
+
     for repo, path, line in sg_lines:
         key = f'{repo}/{path}'
         if key in seen:
@@ -526,53 +547,52 @@ for dork in DORKS:
 
         secrets = list(set(m.group(0)[:200] for m in KEY_RE.finditer(line)))
         if secrets:
-            entry = {
+            findings.append({
                 'url': f'https://github.com/{repo}/blob/HEAD/{path}',
                 'repo': repo,
                 'path': path,
                 'secrets': secrets[:10],
                 'found_at': datetime.utcnow().isoformat(),
                 'source': 'sg',
-            }
-            findings.append(entry)
+            })
             print(f'  HIT(sg): {repo}/{path} — {len(secrets)} secrets', flush=True)
         else:
-            # Line has matching keyword but key may be on adjacent line — queue for raw fetch
-            if sg_new <= 50:  # cap raw fetches per dork to avoid blowing time budget
-                raw_needed.append({
+            # keyword matched but key on adjacent line — queue raw fetch (capped per dork)
+            if sg_new <= 30:
+                all_raw_needed.append({
                     'html_url': f'https://github.com/{repo}/blob/HEAD/{path}',
                     'repository': {'full_name': repo},
                     'path': path,
                 })
 
-    # parallel raw fetch for items where line content wasn't self-contained
-    if raw_needed:
-        print(f'  SG raw-fetch fallback: {len(raw_needed)} files', flush=True)
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            futures = {ex.submit(fetch_and_scan, item): item for item in raw_needed}
-            for future in as_completed(futures):
-                try:
-                    html_url, repo, path, secrets = future.result()
-                except Exception:
-                    continue
-                if secrets:
-                    entry = {
-                        'url': html_url,
-                        'repo': repo,
-                        'path': path,
-                        'secrets': secrets[:10],
-                        'found_at': datetime.utcnow().isoformat(),
-                        'source': 'sg_raw',
-                    }
-                    findings.append(entry)
-                    print(f'  HIT(sg_raw): {repo}/{path} — {len(secrets)} secrets', flush=True)
+    if sg_new < 30:
+        gh_fallback_dorks.append(dork)
 
-    # ── Phase 2: GitHub API (catches repos SG doesn't index; rate-paced) ──
-    # Skip GH search if SG already found plenty of candidates for this dork
-    if sg_new >= 50:
-        print(f'  GH skip (SG returned {sg_new} candidates)', flush=True)
-        continue
+# parallel raw fetch for all queued items at once
+if all_raw_needed:
+    print(f'\n=== Phase 2b: Raw fetch for {len(all_raw_needed)} SG candidates ===', flush=True)
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        futures = {ex.submit(fetch_and_scan, item): item for item in all_raw_needed}
+        for future in as_completed(futures):
+            try:
+                html_url, repo, path, secrets = future.result()
+            except Exception:
+                continue
+            if secrets:
+                findings.append({
+                    'url': html_url,
+                    'repo': repo,
+                    'path': path,
+                    'secrets': secrets[:10],
+                    'found_at': datetime.utcnow().isoformat(),
+                    'source': 'sg_raw',
+                })
+                print(f'  HIT(sg_raw): {repo}/{path} — {len(secrets)} secrets', flush=True)
 
+# ══ Phase 3: GitHub API fallback for low-coverage dorks ═══════════════════
+print(f'\n=== Phase 3: GitHub API fallback ({len(gh_fallback_dorks)} dorks) ===', flush=True)
+for dork in gh_fallback_dorks:
+    print(f'\nGH: {dork}', flush=True)
     for page in range(1, 11):
         result = _gh_search_paced(dork, page)
         if not result:
@@ -580,7 +600,7 @@ for dork in DORKS:
         items = result.get('items', [])
         total = result.get('total_count', 0)
         if page == 1:
-            print(f'  GH: {total} total results', flush=True)
+            print(f'  {total} total', flush=True)
         if not items:
             break
 
@@ -594,7 +614,7 @@ for dork in DORKS:
                 new_seen.append(key)
                 new_items_list.append(item)
 
-        print(f'  GH page {page}: {len(new_items_list)} new', flush=True)
+        print(f'  page {page}: {len(new_items_list)} new', flush=True)
 
         with ThreadPoolExecutor(max_workers=8) as ex:
             futures = {ex.submit(fetch_and_scan, item): item for item in new_items_list}
@@ -604,15 +624,14 @@ for dork in DORKS:
                 except Exception:
                     continue
                 if secrets:
-                    entry = {
+                    findings.append({
                         'url': html_url,
                         'repo': repo,
                         'path': path,
                         'secrets': secrets[:10],
                         'found_at': datetime.utcnow().isoformat(),
                         'source': 'gh',
-                    }
-                    findings.append(entry)
+                    })
                     print(f'  HIT(gh): {repo}/{path} — {len(secrets)} secrets', flush=True)
 
         if len(items) < 100:
