@@ -62,3 +62,14 @@ jobs:
           scp -o StrictHostKeyChecking=no -i ~/.ssh/vps_key probe_exchange_bots.py root@$VPS_HOST:/opt/agents/probe_exchange_bots.py
           echo "--- Running exchange bot prober (re-fetches raw + checks Binance/Bybit) ---"
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/vps_key root@$VPS_HOST "timeout 900 python3 /opt/agents/probe_exchange_bots.py 2>&1 | grep -E '(FUNDED|LIVE|empty|Probed)'" || true
+          echo "--- Deploying realtime monitor ---"
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/vps_key scripts/realtime_monitor.py root@$VPS_HOST:/opt/agents/realtime_monitor.py
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/vps_key root@$VPS_HOST "echo '$GH_TOKEN' > /opt/agents/.gh_token && chmod 600 /opt/agents/.gh_token"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/vps_key root@$VPS_HOST "
+            if tmux has-session -t rtmon 2>/dev/null; then
+              echo 'realtime monitor already running'
+            else
+              tmux new-session -d -s rtmon 'GH_TOKEN=\$(cat /opt/agents/.gh_token) python3 /opt/agents/realtime_monitor.py >> /opt/agents/realtime_monitor.log 2>&1'
+              echo 'realtime monitor started in tmux:rtmon'
+            fi
+          " || true
