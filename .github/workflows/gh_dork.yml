@@ -59,3 +59,6 @@ jobs:
           scp -o StrictHostKeyChecking=no -i ~/.ssh/vps_key check_google.py root@$VPS_HOST:/opt/agents/check_google.py
           echo "--- Running Google API key check ---"
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/vps_key root@$VPS_HOST "timeout 600 python3 /opt/agents/check_google.py 2>&1 | grep -E '(LIVE|Checked)'" || true
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/vps_key probe_exchange_bots.py root@$VPS_HOST:/opt/agents/probe_exchange_bots.py
+          echo "--- Running exchange bot prober (re-fetches raw + checks Binance/Bybit) ---"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/vps_key root@$VPS_HOST "timeout 900 python3 /opt/agents/probe_exchange_bots.py 2>&1 | grep -E '(FUNDED|LIVE|empty|Probed)'" || true
