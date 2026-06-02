@@ -326,7 +326,7 @@ new_seen = []
 
 for dork in DORKS:
     print(f'\nDORK: {dork}', flush=True)
-    for page in range(1, 3):
+    for page in range(1, 11):
         result = search(dork, page)
         if not result:
             break
