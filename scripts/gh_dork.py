@@ -11,7 +11,7 @@ print('Token loaded.', flush=True)
 
 HEADERS = {
     'Authorization': f'token {TOKEN}',
-    'Accept': 'application/vnd.github.v3+json',
+    'Accept': 'application/vnd.github.v3.text-match+json',  # inline match snippets, no raw fetch needed
 }
 
 # ── Sourcegraph streaming search ─────────────────────────────────────────────
@@ -480,18 +480,33 @@ def get_raw(url):
     r = requests.get(raw, headers=HEADERS, timeout=10)
     return r.text[:8000] if r.status_code == 200 else ''
 
-def fetch_and_scan(item):
+def scan_item(item):
+    """Extract secrets from a GitHub search result item.
+    Uses inline text_matches first (no HTTP needed), falls back to raw fetch only if needed."""
     html_url = item.get('html_url', '')
     repo = item.get('repository', {}).get('full_name', '')
     path = item.get('path', '')
-    try:
-        content = get_raw(html_url)
-    except:
-        content = ''
-    secrets = []
-    if content:
-        secrets = list(set(m.group(0)[:200] for m in KEY_RE.finditer(content)))
+
+    # text_matches comes free with Accept: text-match header — no raw fetch needed
+    fragments = ' '.join(
+        tm.get('fragment', '')
+        for tm in item.get('text_matches', [])
+    )
+    secrets = list(set(m.group(0)[:200] for m in KEY_RE.finditer(fragments))) if fragments else []
+
+    # only fetch raw if text_matches returned something but regex needs more context
+    if not secrets and not fragments:
+        try:
+            content = get_raw(html_url)
+        except Exception:
+            content = ''
+        if content:
+            secrets = list(set(m.group(0)[:200] for m in KEY_RE.finditer(content)))
+
     return html_url, repo, path, secrets
+
+def fetch_and_scan(item):
+    return scan_item(item)
 
 findings = []
 new_seen = []
@@ -565,7 +580,8 @@ for dork in DORKS:
                     'path': path,
                 })
 
-    if sg_new < 30:
+    # only fall back to GH API if SG found zero candidates for this dork
+    if sg_new == 0:
         gh_fallback_dorks.append(dork)
 
 # parallel raw fetch for all queued items at once
