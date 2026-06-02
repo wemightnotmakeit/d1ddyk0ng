@@ -53,3 +53,6 @@ jobs:
           scp -o StrictHostKeyChecking=no -i ~/.ssh/vps_key check_evm.py root@$VPS_HOST:/opt/agents/check_evm.py
           echo "--- Running EVM balance check ---"
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/vps_key root@$VPS_HOST "python3 /opt/agents/check_evm.py 2>&1 | grep -E '(FUNDED|dust|RPC_ERR|Checked)'" || true
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/vps_key check_mnemonics.py root@$VPS_HOST:/opt/agents/check_mnemonics.py
+          echo "--- Running multi-chain mnemonic check (ETH/BSC/MATIC/TRX/SOL) ---"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/vps_key root@$VPS_HOST "timeout 1200 python3 /opt/agents/check_mnemonics.py 2>&1 | grep -E '(MNEMONIC|FUNDED|\*\*\*|Unique|Re-fetching)'" || true
