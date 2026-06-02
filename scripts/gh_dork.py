@@ -14,6 +14,82 @@ HEADERS = {
     'Accept': 'application/vnd.github.v3+json',
 }
 
+# ── Sourcegraph streaming search ─────────────────────────────────────────────
+# Primary search engine: no GitHub rate limits, inline content (no raw fetch needed)
+SG_STREAM = 'https://sourcegraph.com/.api/search/stream'
+SG_HEADERS = {'Accept': 'text/event-stream', 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0'}
+
+def _gh_dork_to_sg(dork):
+    """Convert GitHub dork syntax to Sourcegraph query."""
+    lang_map = {
+        'ts': 'TypeScript', 'js': 'JavaScript', 'py': 'Python',
+        'json': 'JSON', 'yml': 'YAML', 'yaml': 'YAML', 'sh': 'Bash',
+        'toml': 'TOML', 'ipynb': 'Jupyter Notebook',
+    }
+    if dork.startswith('filename:'):
+        rest = dork[9:]
+        # 'filename:X Y Z' -> file:X Y Z
+        parts = rest.split(' ', 1)
+        fname = parts[0]
+        terms = parts[1] if len(parts) > 1 else ''
+        # wildcards: *.yml -> file:\.yml$
+        if fname.startswith('*'):
+            ext = fname.lstrip('*.')
+            fname_re = r'\.' + ext + r'$'
+        else:
+            fname_re = re.escape(fname)
+        return f'file:{fname_re} {terms}'.strip()
+    elif dork.startswith('extension:'):
+        rest = dork[10:]
+        parts = rest.split(' ', 1)
+        ext = parts[0]
+        terms = parts[1] if len(parts) > 1 else ''
+        lang = lang_map.get(ext, '')
+        if lang:
+            return f'lang:{lang} {terms}'.strip()
+        return fr'file:\.{ext}$ {terms}'.strip()
+    return dork
+
+def search_sourcegraph(dork, count=500):
+    """
+    Query Sourcegraph streaming API. Returns list of (repo, path, line) tuples.
+    Inline line content means no raw file fetch needed for most patterns.
+    """
+    sg_q = _gh_dork_to_sg(dork)
+    params = {
+        'q': f'context:global {sg_q} patternType:standard',
+        'v': 'V3',
+        'count': str(count),
+    }
+    results = []
+    try:
+        r = requests.get(SG_STREAM, headers=SG_HEADERS, params=params,
+                         timeout=40, stream=True)
+        for raw in r.iter_lines(decode_unicode=True):
+            if not raw or not raw.startswith('data:'):
+                continue
+            ds = raw[5:].strip()
+            if not ds or ds == '{}':
+                continue
+            try:
+                d = json.loads(ds)
+            except Exception:
+                continue
+            if isinstance(d, list):
+                for item in d:
+                    if not isinstance(item, dict) or item.get('type') != 'content':
+                        continue
+                    repo = item.get('repository', '').replace('github.com/', '', 1)
+                    path = item.get('path', '')
+                    for lm in item.get('lineMatches', []):
+                        results.append((repo, path, lm.get('line', '')))
+            elif isinstance(d, dict) and d.get('done'):
+                break
+    except Exception as e:
+        print(f'  SG_err: {e}', flush=True)
+    return results
+# ─────────────────────────────────────────────────────────────────────────────
+
 KEY_RE = re.compile(
     r'(sk_live_[a-zA-Z0-9]{24,}'
     r'|rk_live_[a-zA-Z0-9]{24,}'
@@ -419,21 +495,95 @@ def fetch_and_scan(item):
 
 findings = []
 new_seen = []
+_last_gh_call = 0  # rate-limit pacer for GitHub API
+
+def _gh_search_paced(dork, page):
+    """GitHub code search with 2s minimum spacing to stay under 30/min."""
+    global _last_gh_call
+    gap = time.time() - _last_gh_call
+    if gap < 2.0:
+        time.sleep(2.0 - gap)
+    result = search(dork, page)
+    _last_gh_call = time.time()
+    return result
 
 for dork in DORKS:
     print(f'\nDORK: {dork}', flush=True)
+
+    # ── Phase 1: Sourcegraph (fast, inline content, no GH rate limit) ──
+    sg_lines = search_sourcegraph(dork, count=500)
+    print(f'  SG: {len(sg_lines)} line candidates', flush=True)
+
+    sg_new = 0
+    raw_needed = []  # items where line content alone wasn't enough
+    for repo, path, line in sg_lines:
+        key = f'{repo}/{path}'
+        if key in seen:
+            continue
+        seen.add(key)
+        new_seen.append(key)
+        sg_new += 1
+
+        secrets = list(set(m.group(0)[:200] for m in KEY_RE.finditer(line)))
+        if secrets:
+            entry = {
+                'url': f'https://github.com/{repo}/blob/HEAD/{path}',
+                'repo': repo,
+                'path': path,
+                'secrets': secrets[:10],
+                'found_at': datetime.utcnow().isoformat(),
+                'source': 'sg',
+            }
+            findings.append(entry)
+            print(f'  HIT(sg): {repo}/{path} — {len(secrets)} secrets', flush=True)
+        else:
+            # Line has matching keyword but key may be on adjacent line — queue for raw fetch
+            if sg_new <= 50:  # cap raw fetches per dork to avoid blowing time budget
+                raw_needed.append({
+                    'html_url': f'https://github.com/{repo}/blob/HEAD/{path}',
+                    'repository': {'full_name': repo},
+                    'path': path,
+                })
+
+    # parallel raw fetch for items where line content wasn't self-contained
+    if raw_needed:
+        print(f'  SG raw-fetch fallback: {len(raw_needed)} files', flush=True)
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            futures = {ex.submit(fetch_and_scan, item): item for item in raw_needed}
+            for future in as_completed(futures):
+                try:
+                    html_url, repo, path, secrets = future.result()
+                except Exception:
+                    continue
+                if secrets:
+                    entry = {
+                        'url': html_url,
+                        'repo': repo,
+                        'path': path,
+                        'secrets': secrets[:10],
+                        'found_at': datetime.utcnow().isoformat(),
+                        'source': 'sg_raw',
+                    }
+                    findings.append(entry)
+                    print(f'  HIT(sg_raw): {repo}/{path} — {len(secrets)} secrets', flush=True)
+
+    # ── Phase 2: GitHub API (catches repos SG doesn't index; rate-paced) ──
+    # Skip GH search if SG already found plenty of candidates for this dork
+    if sg_new >= 50:
+        print(f'  GH skip (SG returned {sg_new} candidates)', flush=True)
+        continue
+
     for page in range(1, 11):
-        result = search(dork, page)
+        result = _gh_search_paced(dork, page)
         if not result:
             break
         items = result.get('items', [])
         total = result.get('total_count', 0)
         if page == 1:
-            print(f'  {total} total results', flush=True)
+            print(f'  GH: {total} total results', flush=True)
         if not items:
             break
 
-        # pre-filter to unseen items only
         new_items_list = []
         for item in items:
             repo = item.get('repository', {}).get('full_name', '')
@@ -444,15 +594,14 @@ for dork in DORKS:
                 new_seen.append(key)
                 new_items_list.append(item)
 
-        print(f'  page {page}: {len(new_items_list)} new candidates', flush=True)
+        print(f'  GH page {page}: {len(new_items_list)} new', flush=True)
 
-        # parallel raw fetch — 8 workers, ~8x faster than sequential 0.2s sleeps
         with ThreadPoolExecutor(max_workers=8) as ex:
             futures = {ex.submit(fetch_and_scan, item): item for item in new_items_list}
             for future in as_completed(futures):
                 try:
                     html_url, repo, path, secrets = future.result()
-                except:
+                except Exception:
                     continue
                 if secrets:
                     entry = {
@@ -460,16 +609,14 @@ for dork in DORKS:
                         'repo': repo,
                         'path': path,
                         'secrets': secrets[:10],
-                        'found_at': datetime.utcnow().isoformat()
+                        'found_at': datetime.utcnow().isoformat(),
+                        'source': 'gh',
                     }
                     findings.append(entry)
-                    print(f'  HIT: {repo}/{path} — {len(secrets)} secrets', flush=True)
+                    print(f'  HIT(gh): {repo}/{path} — {len(secrets)} secrets', flush=True)
 
         if len(items) < 100:
             break
-        time.sleep(2)
-
-    time.sleep(1)
 
 print(f'\nTotal hits: {len(findings)}', flush=True)
 print(f'New candidates scanned: {len(new_seen)}', flush=True)
