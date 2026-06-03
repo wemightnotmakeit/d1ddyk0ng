@@ -255,6 +255,25 @@ DORKS = [
     # Jupyter notebooks with real mnemonics
     'extension:ipynb SEED_PHRASE',
     'extension:ipynb RECOVERY_PHRASE',
+    # === BROAD TXT MNEMONIC SWEEP — catches address.txt, wallet.txt, any plaintext ===
+    # kulvinder05/address.env.txt pattern: devs saving seed to any .txt file
+    'extension:txt SEED_PHRASE',
+    'extension:txt MNEMONIC',
+    'extension:txt SECRET_RECOVERY_PHRASE',
+    'extension:txt WALLET_MNEMONIC',
+    # address files — devs saving wallet setup to address files
+    'filename:address.txt',
+    'filename:address.env',
+    'filename:wallet.env',
+    'filename:crypto.env',
+    # Hardcoded mnemonics in Python/JS bot scripts (not .env)
+    'extension:py SEED_PHRASE =',
+    'extension:py MNEMONIC =',
+    'extension:js SEED_PHRASE =',
+    'extension:ts SEED_PHRASE =',
+    # README and docs people accidentally paste real keys into
+    'filename:README.md SEED_PHRASE',
+    'filename:SETUP.md mnemonic',
 
     # === OPENAI ===
     'filename:.env OPENAI_API_KEY',
