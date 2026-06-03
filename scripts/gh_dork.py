@@ -106,7 +106,12 @@ KEY_RE = re.compile(
     # Solana — base58 full keypair (64 bytes = 87-88 chars, base58 charset has no 0/O/I/l)
     r'|(?:SOLANA_PRIVATE_KEY|SOL_PRIVATE_KEY|ANCHOR_WALLET|DEPLOYER_PRIVATE_KEY|PAYER_PRIVATE_KEY'
     r'|OPERATOR_KEY|WALLET_KEYPAIR|SOL_KEYPAIR|SOLANA_KEYPAIR|PRIVATE_KEY_BASE58'
-    r'|SOLANA_WALLET|PUMP_WALLET|SNIPER_WALLET|BOT_WALLET)\s*[=:"\s]+([1-9A-HJ-NP-Za-km-z]{87,88})'
+    r'|SOLANA_WALLET|PUMP_WALLET|SNIPER_WALLET|BOT_WALLET'
+    r'|PHANTOM_PRIVATE_KEY|PHANTOM_WALLET|PHANTOM_KEY|PHANTOM_SEED_KEY'
+    r'|MY_WALLET|WALLET_KEY|TRADER_WALLET|BUYER_WALLET|SELLER_WALLET'
+    r'|COPY_WALLET|VOLUME_WALLET|BUNDLER_WALLET|JITO_WALLET|FEE_WALLET'
+    r'|MAIN_WALLET|HOT_WALLET|FUNDING_WALLET|TRADE_WALLET|SIGNER_WALLET'
+    r'|WALLET_PRIVATE_KEY|PRIVATE_KEY_WALLET|KEY_WALLET)\s*[=:"\':\s]+([1-9A-HJ-NP-Za-km-z]{87,88})'
     # Solana CLI keypair JSON array — [byte,byte,...x64] — the Solana CLI default format
     r'|"(?:secretKey|privateKey)"\s*:\s*\[(\d{1,3}(?:,\s*\d{1,3}){63})\]'
     r'|(?:KEYPAIR|WALLET_BYTES)\s*=\s*\[(\d{1,3}(?:,\s*\d{1,3}){63})\]'
@@ -452,8 +457,44 @@ DORKS = [
     'filename:.env TRON_API_KEY',
     'filename:tron.py private_key',
 
-    # === BROWSER EXTENSION WALLETS exported to files ===
+    # === PHANTOM WALLET — Solana's dominant wallet, base58 private key export ===
+    # Phantom exports a single base58-encoded 64-byte keypair (87-88 chars)
+    'filename:.env PHANTOM_PRIVATE_KEY',
+    'filename:.env PHANTOM_WALLET',
+    'filename:.env PHANTOM_KEY',
+    'filename:.env PHANTOM',
+    # Phantom key files — people dump their export to a file
+    'filename:phantom.txt',
+    'filename:phantom_wallet.txt',
+    'filename:phantom_key.txt',
     'filename:phantom.json secretKey',
+    'filename:phantom-wallet.json',
+    # Phantom seed phrase labeled files
+    'filename:phantom_seed.txt',
+    'filename:phantom_mnemonic.txt',
+    # Phantom in bot configs
+    'extension:ts PHANTOM_PRIVATE_KEY',
+    'extension:js PHANTOM_PRIVATE_KEY',
+    'extension:py PHANTOM_PRIVATE_KEY',
+    'extension:ts PHANTOM_WALLET',
+    'extension:js PHANTOM_WALLET',
+    # Phantom in README/docs (people share their setup)
+    'filename:README.md PHANTOM_PRIVATE_KEY',
+    # === FUNDED PHANTOM PATTERNS — pump.fun / trading bots using Phantom export ===
+    # Devs use "MY_WALLET", "MAIN_WALLET" etc with their Phantom export key
+    'filename:.env MY_WALLET',
+    'filename:.env MAIN_WALLET solana',
+    'filename:.env HOT_WALLET',
+    'filename:.env TRADER_WALLET',
+    'filename:.env BUYER_WALLET',
+    'filename:.env TRADE_WALLET',
+    'filename:.env FUNDING_WALLET',
+    'filename:.env SIGNER_WALLET',
+    'filename:.env FEE_PAYER_KEY',
+    'filename:.env FEE_WALLET',
+    'filename:.env VOLUME_WALLET',
+    'filename:.env JITO_WALLET',
+    # === BROWSER EXTENSION WALLETS exported to files ===
     'filename:metamask_export.json mnemonic',
     'filename:wallet_export.json mnemonic',
     'filename:keystore password',
